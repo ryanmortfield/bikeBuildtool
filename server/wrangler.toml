@@ -1,0 +1,9 @@
+name = "bike-build-api"
+main = "src/index.ts"
+compatibility_date = "2025-06-01"
+
+# D1: run `npm run db:create` (or `wrangler d1 create bike-build-db`) once, then paste the database_id here
+[[d1_databases]]
+binding = "DB"
+database_name = "bike-build-db"
+database_id = "REPLACE_AFTER_D1_CREATE"
