@@ -29,6 +29,16 @@ VITE_CLERK_PUBLISHABLE_KEY=pk_test_xxxxxxxxxxxxxxxxxxxxxxxx
 - Replace with your real **publishable** key from step 2.  
 - Restart the Vite dev server if it’s already running (`npm run dev:app`).
 
+**Deployed app (GitHub Actions → Cloudflare Pages):**
+
+The build runs in GitHub Actions, so the publishable key must be available there. Add a **repository secret**:
+
+1. GitHub repo → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**.
+2. Name: `VITE_CLERK_PUBLISHABLE_KEY`, Value: your publishable key (e.g. `pk_test_...`).
+3. Re-run or push to trigger a new deploy; the workflow will pass this into the build.
+
+(If you deploy via Cloudflare’s “Connect to Git” instead of GitHub Actions, set `VITE_CLERK_PUBLISHABLE_KEY` in the Pages project → **Settings** → **Environment variables**.)
+
 ## 4. Configure the server (backend)
 
 The API needs the **secret** key to verify JWTs. It must not be committed to git.
