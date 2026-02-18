@@ -29,6 +29,7 @@ npm-debug.log*
 
 # Wrangler
 .wrangler/
+.dev.vars
 
 # Plan (optional; remove if you want to track it)
 # .cursor/plans/

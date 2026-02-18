@@ -9,6 +9,18 @@ export function getBaseUrl(): string {
 
 const base = () => getBaseUrl()
 
+/** Set by app when Clerk is ready; used to add Authorization header to API requests. */
+let authTokenGetter: (() => Promise<string | null>) | null = null
+export function setAuthTokenGetter(getter: () => Promise<string | null>) {
+  authTokenGetter = getter
+}
+
+async function authHeaders(): Promise<Record<string, string>> {
+  const token = authTokenGetter ? await authTokenGetter() : null
+  if (!token) return {}
+  return { Authorization: `Bearer ${token}` }
+}
+
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
@@ -18,26 +30,25 @@ async function handleResponse<T>(res: Response): Promise<T> {
 }
 
 export const api = {
-  get: <T>(path: string) =>
-    fetch(`${base()}${path}`).then(handleResponse<T>),
-  post: <T>(path: string, body: unknown) =>
-    fetch(`${base()}${path}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    }).then(handleResponse<T>),
-  patch: <T>(path: string, body: unknown) =>
-    fetch(`${base()}${path}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    }).then(handleResponse<T>),
-  delete: (path: string) =>
-    fetch(`${base()}${path}`, { method: 'DELETE' }).then(async (res) => {
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: res.statusText }))
-        throw new Error((err as { error?: string }).error ?? res.statusText)
-      }
-      return res.json()
-    }),
+  get: async <T>(path: string) => {
+    const headers = await authHeaders()
+    return fetch(`${base()}${path}`, { headers }).then(handleResponse<T>)
+  },
+  post: async <T>(path: string, body: unknown) => {
+    const headers = { 'Content-Type': 'application/json', ...(await authHeaders()) }
+    return fetch(`${base()}${path}`, { method: 'POST', headers, body: JSON.stringify(body) }).then(handleResponse<T>)
+  },
+  patch: async <T>(path: string, body: unknown) => {
+    const headers = { 'Content-Type': 'application/json', ...(await authHeaders()) }
+    return fetch(`${base()}${path}`, { method: 'PATCH', headers, body: JSON.stringify(body) }).then(handleResponse<T>)
+  },
+  delete: async (path: string) => {
+    const headers = await authHeaders()
+    const res = await fetch(`${base()}${path}`, { method: 'DELETE', headers })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }))
+      throw new Error((err as { error?: string }).error ?? res.statusText)
+    }
+    return res.json()
+  },
 }

@@ -4,4 +4,5 @@ import * as schema from './db/schema'
 import { createApp } from './index'
 
 const getDb = () => drizzle(env.DB, { schema })
-export default createApp(getDb)
+const getClerkSecretKey = () => (env as { CLERK_SECRET_KEY?: string }).CLERK_SECRET_KEY
+export default createApp(getDb, getClerkSecretKey)

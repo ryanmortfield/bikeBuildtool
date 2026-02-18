@@ -76,6 +76,14 @@ Plan custom bike builds: track parts, compatibility, weight, price, and chat wit
 4. Add **Environment variable** `VITE_API_URL` = your Worker URL (e.g. `https://bike-build-api.<subdomain>.workers.dev`) if the app uses it.
 5. Deploy. Your app will be at `https://<project>.pages.dev`.
 
+## Authentication (Clerk) – save builds per user
+
+The app uses **Clerk** for sign-in/sign-up so users can save builds and see them on another device. Without Clerk configured, the app still works with anonymous builds (no account).
+
+**→ Full step-by-step with links:** [docs/CLERK_SETUP.md](docs/CLERK_SETUP.md)
+
+**Short version:** Create an app at [dashboard.clerk.com](https://dashboard.clerk.com) → get **publishable** and **secret** keys → put `VITE_CLERK_PUBLISHABLE_KEY` in `app/.env` and `CLERK_SECRET_KEY` in `server/.dev.vars` (local) or `npx wrangler secret put CLERK_SECRET_KEY` (production) → run `cd server && npm run db:migrate:local`.
+
 ## Next steps
 
 - Add Drizzle schema and migrations for `builds`, `parts`, `build_parts` in `server/`.

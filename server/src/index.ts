@@ -7,8 +7,11 @@ import { partsRoutes } from './routes/parts'
 import { buildPartsRoutes } from './routes/build-parts'
 import type { AppDb } from './services/builds'
 
-/** Create app with injected getDb (allows test DB). Production entry uses worker.ts. */
-export function createApp(getDb: () => AppDb) {
+/** Create app with injected getDb and optional Clerk secret for JWT verification. */
+export function createApp(
+  getDb: () => AppDb,
+  getClerkSecretKey: () => string | undefined = () => undefined
+) {
   return new Elysia({
     adapter: CloudflareAdapter,
   })
@@ -39,7 +42,7 @@ export function createApp(getDb: () => AppDb) {
     .get('/', () => ({ ok: true, message: 'Bike Build API' }))
     .get('/api/health', () => ({ status: 'ok', timestamp: new Date().toISOString() }))
     .get('/api/components', () => COMPONENTS)
-    .use(buildsRoutes(getDb))
+    .use(buildsRoutes(getDb, getClerkSecretKey))
     .use(partsRoutes(getDb))
     .use(buildPartsRoutes(getDb))
     .compile()

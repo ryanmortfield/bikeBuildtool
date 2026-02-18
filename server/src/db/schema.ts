@@ -10,6 +10,7 @@ import {
  */
 export const builds = sqliteTable('builds', {
   id: text('id').primaryKey(),
+  userId: text('user_id'), // Clerk user id when authenticated; null = anonymous/legacy
   name: text('name').notNull(),
   bikeType: text('bike_type').notNull(),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),

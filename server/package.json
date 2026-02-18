@@ -14,6 +14,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@clerk/backend": "^2.31.1",
     "@elysiajs/openapi": "^1.4.14",
     "drizzle-orm": "^0.36.0",
     "elysia": "^1.4.0"

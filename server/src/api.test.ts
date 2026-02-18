@@ -93,6 +93,7 @@ describe('API', () => {
       expect(buildsService.createBuild).toHaveBeenCalledWith(expect.anything(), {
         name: 'New Build',
         bikeType: 'gravel',
+        userId: null,
       })
     })
 
