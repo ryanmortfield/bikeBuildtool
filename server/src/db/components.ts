@@ -32,6 +32,11 @@ export type ComponentKey =
   | 'seatpost'
   | 'seatpost_clamp'
   | 'pedals'
+  | 'custom_frameset'
+  | 'custom_drivetrain'
+  | 'custom_braking'
+  | 'custom_wheelset'
+  | 'custom_cockpit'
 
 export type ComponentGroup =
   | 'Frameset'
@@ -77,7 +82,9 @@ export const COMPONENTS: ComponentDef[] = [
   { key: 'pedals', label: 'Pedals', group: 'Cockpit' },
 ]
 
-export const COMPONENT_KEYS: ComponentKey[] = COMPONENTS.map((c) => c.key)
+const FIXED_COMPONENT_KEYS = COMPONENTS.map((c) => c.key)
+const CUSTOM_GROUP_KEYS = ['custom_frameset', 'custom_drivetrain', 'custom_braking', 'custom_wheelset', 'custom_cockpit'] as const
+export const COMPONENT_KEYS: ComponentKey[] = [...FIXED_COMPONENT_KEYS, ...CUSTOM_GROUP_KEYS]
 
 export function isComponentKey(s: string): s is ComponentKey {
   return COMPONENT_KEYS.includes(s as ComponentKey)

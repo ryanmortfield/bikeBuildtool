@@ -1,11 +1,37 @@
+import { createBrowserRouter, RouterProvider } from 'react-router-dom'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { Layout } from '@/components/Layout'
+import { Home } from '@/pages/Home'
+import { Builds } from '@/pages/Builds'
+import { BuildNew } from '@/pages/BuildNew'
+import { BuildDetail } from '@/pages/BuildDetail'
+import { Parts } from '@/pages/Parts'
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: { staleTime: 30 * 1000 },
+  },
+})
+
+const router = createBrowserRouter([
+  {
+    path: '/',
+    element: <Layout />,
+    children: [
+      { index: true, element: <Home /> },
+      { path: 'builds', element: <Builds /> },
+      { path: 'builds/new', element: <BuildNew /> },
+      { path: 'builds/:id', element: <BuildDetail /> },
+      { path: 'parts', element: <Parts /> },
+    ],
+  },
+])
+
 function App() {
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100 flex items-center justify-center">
-      <div className="text-center">
-        <h1 className="text-2xl font-bold text-white">Bike Build Tool</h1>
-        <p className="mt-2 text-gray-400">Scaffold ready. API: <code className="text-cyan-400">/api/health</code></p>
-      </div>
-    </div>
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>
   )
 }
 
