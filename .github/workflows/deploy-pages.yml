@@ -3,9 +3,6 @@ name: Deploy frontend to Cloudflare Pages
 on:
   push:
     branches: [main]
-    paths:
-      - 'app/**'
-      - '.github/workflows/deploy-pages.yml'
   workflow_dispatch:
 
 jobs:
