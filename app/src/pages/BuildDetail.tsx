@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { PartCombobox } from '@/components/PartCombobox'
 import { AddCustomComponentDialog } from '@/components/AddCustomComponentDialog'
+import { BuildSummary } from '@/components/BuildSummary'
 import { TEST_PARTS, TEST_PART_PREFIX } from '@/lib/testParts'
 import type { Part } from '@/types/api'
 
@@ -123,12 +124,14 @@ export function BuildDetail() {
   const groups = groupByGroup(components)
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="sm" asChild>
-          <Link to="/builds">← Builds</Link>
-        </Button>
-      </div>
+    <div className="relative pb-24 sm:pb-6 sm:pr-56">
+      <BuildSummary buildParts={buildParts} components={components} />
+      <div className="space-y-6">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="sm" asChild>
+            <Link to="/builds">← Builds</Link>
+          </Button>
+        </div>
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">{build.name}</h1>
@@ -180,14 +183,16 @@ export function BuildDetail() {
                           <label className="sm:w-56 shrink-0 text-sm font-medium">
                             {comp.label}
                           </label>
-                          <div className="flex-1 flex gap-2 min-w-0">
-                            <PartCombobox
-                              buildId={id}
-                              componentKey={comp.key}
-                              componentLabel={comp.label}
-                              current={primary}
-                              onSuccess={refetchParts}
-                            />
+                          <div className="flex-1 flex items-center gap-2 min-w-0">
+                            <div className="min-w-0 max-w-sm flex-1">
+                              <PartCombobox
+                                buildId={id}
+                                componentKey={comp.key}
+                                componentLabel={comp.label}
+                                current={primary}
+                                onSuccess={refetchParts}
+                              />
+                            </div>
                             {primary && (
                               <Button
                                 type="button"
@@ -232,15 +237,17 @@ export function BuildDetail() {
                       <label className="sm:w-56 shrink-0 text-sm font-medium">
                         {bp.customName ?? 'Custom component'}
                       </label>
-                      <div className="flex-1 flex gap-2 min-w-0">
-                        <PartCombobox
-                          buildId={id}
-                          componentKey={customKey!}
-                          componentLabel={bp.customName ?? 'Custom component'}
-                          current={bp}
-                          onSuccess={refetchParts}
-                          componentKeysInGroup={groupComponentKeys}
-                        />
+                      <div className="flex-1 flex items-center gap-2 min-w-0">
+                        <div className="min-w-0 max-w-sm flex-1">
+                          <PartCombobox
+                            buildId={id}
+                            componentKey={customKey!}
+                            componentLabel={bp.customName ?? 'Custom component'}
+                            current={bp}
+                            onSuccess={refetchParts}
+                            componentKeysInGroup={groupComponentKeys}
+                          />
+                        </div>
                         <Button
                           type="button"
                           variant="ghost"
@@ -282,6 +289,7 @@ export function BuildDetail() {
           componentKey={CUSTOM_COMPONENT_KEY_BY_GROUP[addDialogGroup]!}
         />
       )}
+      </div>
     </div>
   )
 }
