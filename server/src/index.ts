@@ -1,5 +1,6 @@
 import { Elysia } from 'elysia'
 import { CloudflareAdapter } from 'elysia/adapter/cloudflare-worker'
+import { cors } from '@elysiajs/cors'
 import { openapi } from '@elysiajs/openapi'
 import { COMPONENTS } from './db/components'
 import { buildsRoutes } from './routes/builds'
@@ -15,6 +16,16 @@ export function createApp(
   return new Elysia({
     adapter: CloudflareAdapter,
   })
+    .use(
+      cors({
+        origin: (request) => {
+          const o = request.headers.get('Origin')
+          return o === 'https://bike-build-tool.pages.dev' || o === 'http://localhost:5173'
+        },
+        credentials: true,
+        allowedHeaders: ['Content-Type', 'Authorization'],
+      })
+    )
     .use(
       openapi({
         path: '/openapi',
