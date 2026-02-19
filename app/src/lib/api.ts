@@ -22,11 +22,22 @@ async function authHeaders(): Promise<Record<string, string>> {
 }
 
 async function handleResponse<T>(res: Response): Promise<T> {
+  const contentType = res.headers.get('content-type') ?? ''
+  const isJson = contentType.includes('application/json')
+  const text = await res.text()
+
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }))
+    const err = isJson ? (JSON.parse(text) as { error?: string }) : { error: res.statusText }
     throw new Error((err as { error?: string }).error ?? res.statusText)
   }
-  return res.json() as Promise<T>
+
+  if (text.trim() === '') return {} as T
+  if (!isJson || text.trimStart().startsWith('<')) {
+    throw new Error(
+      "API returned HTML instead of JSON. Set VITE_API_URL to your Worker URL (e.g. https://bike-build-api.<subdomain>.workers.dev) in your deployment environment variables and redeploy."
+    )
+  }
+  return JSON.parse(text) as T
 }
 
 export const api = {
@@ -45,10 +56,18 @@ export const api = {
   delete: async (path: string) => {
     const headers = await authHeaders()
     const res = await fetch(`${base()}${path}`, { method: 'DELETE', headers })
+    const contentType = res.headers.get('content-type') ?? ''
+    const isJson = contentType.includes('application/json')
+    const text = await res.text()
     if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: res.statusText }))
+      const err = isJson ? (JSON.parse(text) as { error?: string }) : { error: res.statusText }
       throw new Error((err as { error?: string }).error ?? res.statusText)
     }
-    return res.json()
+    if (!isJson || text.trimStart().startsWith('<')) {
+      throw new Error(
+        "API returned HTML instead of JSON. Set VITE_API_URL to your Worker URL in your deployment environment variables and redeploy."
+      )
+    }
+    return text ? (JSON.parse(text) as { deleted?: boolean }) : {}
   },
 }
