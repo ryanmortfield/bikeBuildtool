@@ -18,7 +18,7 @@ export const buildPartsRoutes = (getDb: () => AppDb) =>
     if (!buildExists) return notFound(set, 'Build')
     const result = await buildPartsService.addBuildPart(db, params.id, body as Record<string, unknown>)
     if (!result) return badRequest(set, 'Invalid component or provide partId (catalog) or customName (custom part)')
-    return { ...result.row, part: result.part }
+    return result.response
   }, {
     params: idParam,
     body: createBuildPartBody,

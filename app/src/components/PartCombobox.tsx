@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
+import { getBuildPartDisplayName, getBuildPartPartName } from '@/lib/buildPart'
 import type { Part } from '@/types/api'
 import type { BuildPartWithPart } from '@/types/api'
 import { Button } from '@/components/ui/button'
@@ -22,8 +23,6 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
-
-const CUSTOM_PART_VALUE = '__custom__'
 
 interface PartComboboxProps {
   buildId: string
@@ -45,22 +44,46 @@ export function PartCombobox({
 }: PartComboboxProps) {
   const [open, setOpen] = React.useState(false)
   const [showCustomForm, setShowCustomForm] = React.useState(false)
+  const [showDetailsView, setShowDetailsView] = React.useState(false)
   const [customName, setCustomName] = React.useState('')
   const [customWeight, setCustomWeight] = React.useState('')
   const [customPrice, setCustomPrice] = React.useState('')
+  const [editName, setEditName] = React.useState('')
+  const [editWeight, setEditWeight] = React.useState('')
+  const [editPrice, setEditPrice] = React.useState('')
   const queryClient = useQueryClient()
 
-  const isCustomSlot = componentKeysInGroup != null
-  const { data: parts = [], isLoading } = useQuery<Part[]>({
-    queryKey: isCustomSlot ? ['parts', 'all'] : ['parts', componentKey],
-    queryFn: isCustomSlot
-      ? () => api.get<Part[]>('/api/parts').then((all) => all.filter((p) => componentKeysInGroup!.includes(p.component)))
-      : () => api.get<Part[]>(`/api/parts?component=${encodeURIComponent(componentKey)}`),
+  const { data: allParts = [], isLoading } = useQuery<Part[]>({
+    queryKey: ['parts', 'all'],
+    queryFn: () => api.get<Part[]>('/api/parts'),
     enabled: open,
   })
 
+  const parts = React.useMemo(() => {
+    const sameTypeFirst = (a: Part, b: Part) => {
+      const aMatch = componentKeysInGroup
+        ? componentKeysInGroup.includes(a.component)
+        : a.component === componentKey
+      const bMatch = componentKeysInGroup
+        ? componentKeysInGroup.includes(b.component)
+        : b.component === componentKey
+      return (bMatch ? 1 : 0) - (aMatch ? 1 : 0)
+    }
+    return [...allParts].sort(sameTypeFirst)
+  }, [allParts, componentKey, componentKeysInGroup])
+
   const addPart = useMutation({
     mutationFn: async (body: { partId?: string; customName?: string; customWeightG?: number; customPrice?: number }) => {
+      const isCustomPartBody = Boolean(body.customName?.trim())
+      const isAdditionalComponentRow = current?.id && !current.partId
+
+      if (isCustomPartBody && isAdditionalComponentRow) {
+        return api.patch<BuildPartWithPart>(`/api/builds/${buildId}/parts/${current.id}`, {
+          customName: body.customName!.trim(),
+          ...(body.customWeightG != null && body.customWeightG > 0 && { customWeightG: body.customWeightG }),
+          ...(body.customPrice != null && body.customPrice >= 0 && { customPrice: body.customPrice }),
+        })
+      }
       if (current?.id) {
         await api.delete(`/api/builds/${buildId}/parts/${current.id}`)
       }
@@ -83,14 +106,50 @@ export function PartCombobox({
     },
   })
 
+  const updateCustomPart = useMutation({
+    mutationFn: (body: { customName: string; customWeightG?: number; customPrice?: number }) =>
+      api.patch<BuildPartWithPart>(`/api/builds/${buildId}/parts/${current!.id}`, {
+        customName: body.customName.trim(),
+        ...(body.customWeightG != null && body.customWeightG > 0 && { customWeightG: body.customWeightG }),
+        ...(body.customPrice != null && body.customPrice >= 0 && { customPrice: body.customPrice }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['builds', buildId, 'parts'] })
+      onSuccess()
+    },
+  })
+
+  const removePart = useMutation({
+    mutationFn: () => api.delete(`/api/builds/${buildId}/parts/${current!.id}`) as Promise<{ deleted: true }>,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['builds', buildId, 'parts'] })
+      onSuccess()
+      setOpen(false)
+    },
+  })
+
   const hasChosenPart =
     current?.part != null ||
     (current?.partId != null) ||
-    (current != null && current.customName != null && current.customName !== componentLabel)
-  const displayLabel = hasChosenPart
-    ? (current!.part?.name ?? current!.customName ?? 'Custom')
+    (current != null && getBuildPartPartName(current) != null)
+  const displayLabel = hasChosenPart && current
+    ? (getBuildPartPartName(current) ?? getBuildPartDisplayName(current))
     : `Choose part for ${componentLabel}…`
   const showPlaceholderStyle = !hasChosenPart
+  const isCustomPart = current != null && !current.partId && (current.customName != null || (current as { custom_name?: string }).custom_name != null)
+
+  React.useEffect(() => {
+    if (open) {
+      setShowDetailsView(hasChosenPart)
+      if (!hasChosenPart) setShowCustomForm(false)
+      if (hasChosenPart && current && !current.partId) {
+        const name = current.customName ?? (current as { custom_name?: string }).custom_name ?? ''
+        setEditName(name)
+        setEditWeight(current.customWeightG != null ? String(current.customWeightG) : '')
+        setEditPrice(current.customPrice != null ? String(current.customPrice) : '')
+      }
+    }
+  }, [open, hasChosenPart, current])
 
   const handleSelectPart = (part: Part) => {
     addPart.mutate({ partId: part.id })
@@ -106,6 +165,22 @@ export function PartCombobox({
       customPrice: customPrice ? parseFloat(customPrice) : undefined,
     })
   }
+
+  const handleSaveCustomPart = (e: React.FormEvent) => {
+    e.preventDefault()
+    const name = editName.trim()
+    if (!name) return
+    updateCustomPart.mutate({
+      customName: name,
+      customWeightG: editWeight ? parseInt(editWeight, 10) : undefined,
+      customPrice: editPrice ? parseFloat(editPrice) : undefined,
+    })
+  }
+
+  const partName = current ? getBuildPartPartName(current) ?? getBuildPartDisplayName(current) : ''
+  const partWeight = current?.part?.weightG ?? current?.customWeightG ?? (current as { custom_weight_g?: number })?.custom_weight_g
+  const partPrice = current?.part?.price ?? current?.customPrice ?? (current as { custom_price?: number })?.custom_price
+  const partCurrency = current?.part?.currency ?? current?.customCurrency ?? (current as { custom_currency?: string })?.custom_currency
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -123,7 +198,106 @@ export function PartCombobox({
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-        {showCustomForm ? (
+        {showDetailsView && current ? (
+          <div className="p-3 space-y-4">
+            <h4 className="text-sm font-medium text-foreground">Part details</h4>
+            {isCustomPart ? (
+              <form onSubmit={handleSaveCustomPart} className="space-y-3">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-name">Part name</Label>
+                  <Input
+                    id="edit-name"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    placeholder="e.g. Generic handlebar"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label htmlFor="edit-weight">Weight (g)</Label>
+                    <Input
+                      id="edit-weight"
+                      type="number"
+                      min={0}
+                      placeholder="Optional"
+                      value={editWeight}
+                      onChange={(e) => setEditWeight(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="edit-price">Price</Label>
+                    <Input
+                      id="edit-price"
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      placeholder="Optional"
+                      value={editPrice}
+                      onChange={(e) => setEditPrice(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="submit" size="sm" disabled={!editName.trim() || updateCustomPart.isPending}>
+                    {updateCustomPart.isPending ? 'Saving…' : 'Save'}
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" onClick={() => setShowDetailsView(false)}>
+                    Change part
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => removePart.mutate()}
+                    disabled={removePart.isPending}
+                  >
+                    Remove
+                  </Button>
+                </div>
+                {updateCustomPart.isError && (
+                  <p className="text-xs text-destructive">{String(updateCustomPart.error)}</p>
+                )}
+              </form>
+            ) : (
+              <>
+                <dl className="space-y-2 text-sm">
+                  <div>
+                    <dt className="text-muted-foreground">Name</dt>
+                    <dd className="font-medium">{partName}</dd>
+                  </div>
+                  {(partWeight != null || partPrice != null) && (
+                    <div>
+                      <dt className="text-muted-foreground">Weight / Price</dt>
+                      <dd>
+                        {[partWeight != null ? `${partWeight}g` : null, partPrice != null ? `${partCurrency ?? ''} ${partPrice}` : null]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </dd>
+                    </div>
+                  )}
+                </dl>
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" onClick={() => setShowDetailsView(false)}>
+                    Change part
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => removePart.mutate()}
+                    disabled={removePart.isPending}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              </>
+            )}
+            {removePart.isError && (
+              <p className="text-xs text-destructive">{String(removePart.error)}</p>
+            )}
+          </div>
+        ) : showCustomForm ? (
           <form onSubmit={handleSubmitCustom} className="p-3 space-y-3">
             <div className="space-y-2">
               <Label htmlFor="custom-name">Part name</Label>
@@ -178,9 +352,9 @@ export function PartCombobox({
             )}
           </form>
         ) : (
-          <Command>
+          <Command className="flex flex-col">
             <CommandInput placeholder={`Search ${componentLabel}…`} />
-            <CommandList>
+            <CommandList className="max-h-60 min-h-24">
               <CommandEmpty>
                 {isLoading ? 'Loading…' : 'No parts in catalog. Add a custom part below.'}
               </CommandEmpty>
@@ -202,15 +376,19 @@ export function PartCombobox({
                     )}
                   </CommandItem>
                 ))}
-                <CommandItem
-                  value={CUSTOM_PART_VALUE}
-                  onSelect={() => setShowCustomForm(true)}
-                  className="border-t mt-1 pt-2"
-                >
-                  + Add custom part
-                </CommandItem>
               </CommandGroup>
             </CommandList>
+            <div className="border-t p-1">
+              <Button
+                type="button"
+                variant="ghost"
+                className="w-full justify-start text-sm font-normal"
+                onClick={() => setShowCustomForm(true)}
+                disabled={addPart.isPending}
+              >
+                + Add custom part
+              </Button>
+            </div>
           </Command>
         )}
       </PopoverContent>

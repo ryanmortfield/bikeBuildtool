@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { PartCombobox } from '@/components/PartCombobox'
 import { AddCustomComponentDialog } from '@/components/AddCustomComponentDialog'
 import { BuildSummary } from '@/components/BuildSummary'
+import { getBuildPartDisplayName } from '@/lib/buildPart'
 import { TEST_PARTS, TEST_PART_PREFIX } from '@/lib/testParts'
 import type { Part } from '@/types/api'
 
@@ -214,7 +215,7 @@ export function BuildDetail() {
                                 key={bp.id}
                                 className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-sm"
                               >
-                                {bp.part?.name ?? bp.customName ?? 'Custom'}
+                                {getBuildPartDisplayName(bp)}
                                 <Button
                                   type="button"
                                   variant="ghost"
@@ -235,14 +236,14 @@ export function BuildDetail() {
                   {customParts.map((bp) => (
                     <div key={bp.id} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
                       <label className="sm:w-56 shrink-0 text-sm font-medium">
-                        {bp.customName ?? 'Custom component'}
+                        {getBuildPartDisplayName(bp)}
                       </label>
                       <div className="flex-1 flex items-center gap-2 min-w-0">
                         <div className="min-w-0 max-w-sm flex-1">
                           <PartCombobox
                             buildId={id}
                             componentKey={customKey!}
-                            componentLabel={bp.customName ?? 'Custom component'}
+                            componentLabel={getBuildPartDisplayName(bp)}
                             current={bp}
                             onSuccess={refetchParts}
                             componentKeysInGroup={groupComponentKeys}

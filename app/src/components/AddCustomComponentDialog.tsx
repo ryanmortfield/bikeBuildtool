@@ -52,11 +52,14 @@ export function AddCustomComponentDialog({
   })
 
   const addPart = useMutation({
-    mutationFn: (body: FormValues) =>
-      api.post<BuildPartWithPart>(`/api/builds/${buildId}/parts`, {
+    mutationFn: (body: FormValues) => {
+      const name = body.customName.trim()
+      return api.post<BuildPartWithPart>(`/api/builds/${buildId}/parts`, {
         component: componentKey,
-        customName: body.customName.trim(),
-      }),
+        customName: name,
+        componentLabel: name,
+      })
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['builds', buildId, 'parts'] })
       form.reset({ customName: '' })

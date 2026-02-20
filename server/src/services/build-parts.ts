@@ -14,6 +14,27 @@ function pickNum(b: Record<string, unknown>, ...keys: string[]): number | null {
   return null
 }
 
+/** Normalize a build-part row to camelCase for API responses (handles DB snake_case). */
+function toBuildPartResponse(
+  row: Record<string, unknown>,
+  part: (typeof parts.$inferSelect) | null = null
+): Record<string, unknown> {
+  return {
+    id: row.id,
+    buildId: row.buildId ?? (row as Record<string, unknown>).build_id,
+    component: row.component,
+    partId: row.partId ?? (row as Record<string, unknown>).part_id ?? null,
+    quantity: row.quantity ?? 1,
+    notes: row.notes ?? null,
+    componentLabel: row.componentLabel ?? (row as Record<string, unknown>).component_label ?? null,
+    customName: row.customName ?? (row as Record<string, unknown>).custom_name ?? null,
+    customWeightG: row.customWeightG ?? (row as Record<string, unknown>).custom_weight_g ?? null,
+    customPrice: row.customPrice ?? (row as Record<string, unknown>).custom_price ?? null,
+    customCurrency: row.customCurrency ?? (row as Record<string, unknown>).custom_currency ?? null,
+    ...(part !== undefined && { part }),
+  }
+}
+
 /** Single responsibility: build-parts junction data access. */
 export async function listByBuildId(db: AppDb, buildId: string) {
   const rows = await db.select().from(buildParts).where(eq(buildParts.buildId, buildId))
@@ -23,10 +44,10 @@ export async function listByBuildId(db: AppDb, buildId: string) {
     const [p] = await db.select().from(parts).where(eq(parts.id, id))
     partMap.set(id, p ?? null)
   }
-  return rows.map((r) => ({
-    ...r,
-    part: r.partId ? partMap.get(r.partId) ?? null : null,
-  }))
+  return rows.map((r) => {
+    const part = r.partId ? partMap.get(r.partId) ?? null : null
+    return toBuildPartResponse(r as unknown as Record<string, unknown>, part)
+  })
 }
 
 export async function requireBuildExists(db: AppDb, buildId: string): Promise<boolean> {
@@ -34,7 +55,11 @@ export async function requireBuildExists(db: AppDb, buildId: string): Promise<bo
   return !!b
 }
 
-export async function addBuildPart(db: AppDb, buildId: string, body: Record<string, unknown>): Promise<{ row: BuildPart; part: (typeof parts.$inferSelect) | null } | null> {
+export async function addBuildPart(
+  db: AppDb,
+  buildId: string,
+  body: Record<string, unknown>
+): Promise<{ row: BuildPart; part: (typeof parts.$inferSelect) | null; response: Record<string, unknown> } | null> {
   const component = pickStr(body, 'component')
   if (!component || !isComponentKey(component)) return null
   const partId = pickStr(body, 'part_id', 'partId')
@@ -42,6 +67,7 @@ export async function addBuildPart(db: AppDb, buildId: string, body: Record<stri
   if (!partId && !customName) return null
   const id = createId()
   const quantity = pickNum(body, 'quantity') ?? 1
+  const componentLabel = pickStr(body, 'component_label', 'componentLabel')
   await db.insert(buildParts).values({
     id,
     buildId,
@@ -49,6 +75,7 @@ export async function addBuildPart(db: AppDb, buildId: string, body: Record<stri
     partId: partId || null,
     quantity,
     notes: typeof body.notes === 'string' ? body.notes : null,
+    componentLabel: componentLabel || null,
     customName: customName || null,
     customWeightG: pickNum(body, 'custom_weight_g', 'customWeightG'),
     customPrice: pickNum(body, 'custom_price', 'customPrice'),
@@ -57,7 +84,11 @@ export async function addBuildPart(db: AppDb, buildId: string, body: Record<stri
   const [row] = await db.select().from(buildParts).where(eq(buildParts.id, id))
   if (!row) return null
   const part = row.partId ? (await db.select().from(parts).where(eq(parts.id, row.partId)))[0] ?? null : null
-  return { row, part }
+  return {
+    row: toBuildPartResponse(row as unknown as Record<string, unknown>) as BuildPart,
+    part,
+    response: toBuildPartResponse(row as unknown as Record<string, unknown>, part),
+  }
 }
 
 export async function getBuildPartByRowId(db: AppDb, buildId: string, rowId: string): Promise<BuildPart | null> {
@@ -74,6 +105,7 @@ export async function updateBuildPart(db: AppDb, buildId: string, rowId: string,
   const updates: Record<string, unknown> = {}
   if (body.quantity !== undefined) updates.quantity = Number(body.quantity)
   if (body.notes !== undefined) updates.notes = body.notes === null ? null : String(body.notes)
+  if (body.component_label !== undefined || body.componentLabel !== undefined) updates.componentLabel = body.component_label ?? body.componentLabel
   if (body.custom_name !== undefined || body.customName !== undefined) updates.customName = body.custom_name ?? body.customName
   if (body.custom_weight_g !== undefined || body.customWeightG !== undefined) updates.customWeightG = body.custom_weight_g ?? body.customWeightG
   if (body.custom_price !== undefined || body.customPrice !== undefined) updates.customPrice = body.custom_price ?? body.customPrice

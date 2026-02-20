@@ -258,6 +258,19 @@ describe('API', () => {
           customCurrency: null,
         },
         part: null,
+        response: {
+          id: 'bp-1',
+          buildId: 'b-1',
+          component: 'frame',
+          partId: null,
+          quantity: 1,
+          notes: null,
+          customName: 'TBD',
+          customWeightG: null,
+          customPrice: null,
+          customCurrency: null,
+          part: null,
+        },
       })
       const res = await app.handle(
         new Request('http://localhost/api/builds/b-1/parts', {

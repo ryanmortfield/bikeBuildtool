@@ -49,6 +49,8 @@ export const buildParts = sqliteTable('build_parts', {
   partId: text('part_id').references(() => parts.id, { onDelete: 'set null' }),
   quantity: integer('quantity').notNull().default(1),
   notes: text('notes'),
+  /** Display label for "additional component" rows; preserved when user adds a custom part to the row. */
+  componentLabel: text('component_label'),
   customName: text('custom_name'),
   customWeightG: integer('custom_weight_g'),
   customPrice: real('custom_price'),

@@ -31,6 +31,8 @@ export interface BuildPart {
   partId: string | null
   quantity: number
   notes: string | null
+  /** Display label for "additional component" rows; preserved when adding a custom part to the row. */
+  componentLabel?: string | null
   customName: string | null
   customWeightG: number | null
   customPrice: number | null

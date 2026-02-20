@@ -72,6 +72,8 @@ export const createBuildPartBody = t.Object({
   partId: t.Optional(t.Nullable(t.String())),
   quantity: t.Optional(t.Number()),
   notes: t.Optional(t.Nullable(t.String())),
+  component_label: t.Optional(t.Nullable(t.String())),
+  componentLabel: t.Optional(t.Nullable(t.String())),
   custom_name: t.Optional(t.Nullable(t.String())),
   customName: t.Optional(t.Nullable(t.String())),
   custom_weight_g: t.Optional(t.Nullable(t.Number())),
@@ -85,6 +87,8 @@ export const createBuildPartBody = t.Object({
 export const updateBuildPartBody = t.Object({
   quantity: t.Optional(t.Number()),
   notes: t.Optional(t.Nullable(t.String())),
+  component_label: t.Optional(t.Nullable(t.String())),
+  componentLabel: t.Optional(t.Nullable(t.String())),
   custom_name: t.Optional(t.Nullable(t.String())),
   customName: t.Optional(t.Nullable(t.String())),
   custom_weight_g: t.Optional(t.Nullable(t.Number())),
