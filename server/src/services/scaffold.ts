@@ -186,3 +186,24 @@ export async function createGroup(
     .where(and(eq(buildSlots.buildId, buildId), inArray(buildSlots.id, input.slotIds)))
   return { id: groupId, name: input.name.trim() }
 }
+
+/**
+ * Reorder slots within a category. slotIds must be the full ordered list of slot ids for that category.
+ */
+export async function reorderSlots(
+  db: AppDb,
+  buildId: string,
+  categoryId: string,
+  slotIds: string[]
+): Promise<boolean> {
+  if (slotIds.length === 0) return true
+  const slots = await db
+    .select()
+    .from(buildSlots)
+    .where(and(eq(buildSlots.buildId, buildId), eq(buildSlots.categoryId, categoryId), inArray(buildSlots.id, slotIds)))
+  if (slots.length !== slotIds.length) return false
+  for (let i = 0; i < slotIds.length; i++) {
+    await db.update(buildSlots).set({ sortOrder: i }).where(eq(buildSlots.id, slotIds[i]!))
+  }
+  return true
+}

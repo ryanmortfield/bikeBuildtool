@@ -1,9 +1,9 @@
 import { Elysia, t } from 'elysia'
 import * as buildsService from '../services/builds'
-import { getScaffold, createGroup } from '../services/scaffold'
+import { getScaffold, createGroup, reorderSlots } from '../services/scaffold'
 import { getUserIdFromRequest } from '../lib/auth'
 import { notFound } from '../lib/responses'
-import { createBuildBody, updateBuildBody, createGroupBody, idParam, errorResponse } from '../schemas/api'
+import { createBuildBody, updateBuildBody, createGroupBody, reorderSlotsBody, idParam, errorResponse } from '../schemas/api'
 import type { AppDb } from '../services/builds'
 
 /** Builds CRUD. Resolves optional userId from Clerk JWT; scopes list/create/mutate by user. */
@@ -69,6 +69,21 @@ export const buildsRoutes = (
       params: idParam,
       body: createGroupBody,
       response: { 200: t.Object({ id: t.String(), name: t.String() }), 400: t.Object({ error: t.String() }), 404: errorResponse },
+    })
+    .put('/builds/:id/categories/:categoryId/slots/reorder', async ({ db, userId, params, body, set }) => {
+      const build = await buildsService.getBuildById(db, params.id)
+      if (!build) return notFound(set, 'Build')
+      if (build.userId && build.userId !== userId) return notFound(set, 'Build')
+      const ok = await reorderSlots(db, params.id, params.categoryId, body.slotIds)
+      if (!ok) {
+        set.status = 400
+        return { error: 'Invalid category or slotIds' }
+      }
+      return { ok: true as const }
+    }, {
+      params: t.Object({ id: t.String(), categoryId: t.String() }),
+      body: reorderSlotsBody,
+      response: { 200: t.Object({ ok: t.Literal(true) }), 400: t.Object({ error: t.String() }), 404: errorResponse },
     })
     .patch('/builds/:id', async ({ db, userId, params, body, set }) => {
       const existing = await buildsService.getBuildById(db, params.id)

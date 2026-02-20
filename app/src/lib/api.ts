@@ -53,6 +53,10 @@ export const api = {
     const headers = { 'Content-Type': 'application/json', ...(await authHeaders()) }
     return fetch(`${base()}${path}`, { method: 'PATCH', headers, body: JSON.stringify(body) }).then(handleResponse<T>)
   },
+  put: async <T>(path: string, body: unknown) => {
+    const headers = { 'Content-Type': 'application/json', ...(await authHeaders()) }
+    return fetch(`${base()}${path}`, { method: 'PUT', headers, body: JSON.stringify(body) }).then(handleResponse<T>)
+  },
   delete: async (path: string) => {
     const headers = await authHeaders()
     const res = await fetch(`${base()}${path}`, { method: 'DELETE', headers })

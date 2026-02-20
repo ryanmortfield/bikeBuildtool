@@ -29,6 +29,11 @@ export const createGroupBody = t.Object({
   slotIds: t.Array(t.String()),
 })
 
+/** Reorder slots within a category (ordered slot ids). */
+export const reorderSlotsBody = t.Object({
+  slotIds: t.Array(t.String()),
+})
+
 /** Parts – component is required and validated in handler against COMPONENT_KEYS. */
 export const createPartBody = t.Object({
   name: t.String(),
