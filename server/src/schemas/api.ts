@@ -23,6 +23,12 @@ export const updateBuildBody = t.Object({
   bike_type: t.Optional(t.String()),
 })
 
+/** Create a group and assign slots to it. */
+export const createGroupBody = t.Object({
+  name: t.String(),
+  slotIds: t.Array(t.String()),
+})
+
 /** Parts – component is required and validated in handler against COMPONENT_KEYS. */
 export const createPartBody = t.Object({
   name: t.String(),

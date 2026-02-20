@@ -1,4 +1,4 @@
-import { eq, and, isNull } from 'drizzle-orm'
+import { eq, and, isNull, inArray } from 'drizzle-orm'
 import { buildCategories, buildSlots, buildGroups, buildParts } from '../db/schema'
 import { COMPONENTS, type ComponentKey } from '../db/components'
 import { createId } from '../lib/id'
@@ -148,4 +148,41 @@ export async function getScaffold(db: AppDb, buildId: string): Promise<{
       sortOrder: g.sortOrder,
     })),
   }
+}
+
+/**
+ * Create a build group and assign the given slots to it. Uses first slot's category for the group.
+ */
+export async function createGroup(
+  db: AppDb,
+  buildId: string,
+  input: { name: string; slotIds: string[] }
+): Promise<{ id: string; name: string } | null> {
+  if (!input.name.trim() || input.slotIds.length === 0) return null
+  const slots = await db
+    .select()
+    .from(buildSlots)
+    .where(and(eq(buildSlots.buildId, buildId), inArray(buildSlots.id, input.slotIds)))
+  if (slots.length === 0) return null
+  const categoryId = slots[0].categoryId
+  const existingGroups = await db
+    .select({ sortOrder: buildGroups.sortOrder })
+    .from(buildGroups)
+    .where(eq(buildGroups.buildId, buildId))
+  const maxOrder = existingGroups.length
+    ? Math.max(...existingGroups.map((g) => g.sortOrder))
+    : -1
+  const groupId = createId()
+  await db.insert(buildGroups).values({
+    id: groupId,
+    buildId,
+    name: input.name.trim(),
+    categoryId,
+    sortOrder: maxOrder + 1,
+  })
+  await db
+    .update(buildSlots)
+    .set({ groupId })
+    .where(and(eq(buildSlots.buildId, buildId), inArray(buildSlots.id, input.slotIds)))
+  return { id: groupId, name: input.name.trim() }
 }

@@ -1,9 +1,9 @@
 import { Elysia, t } from 'elysia'
 import * as buildsService from '../services/builds'
-import { getScaffold } from '../services/scaffold'
+import { getScaffold, createGroup } from '../services/scaffold'
 import { getUserIdFromRequest } from '../lib/auth'
 import { notFound } from '../lib/responses'
-import { createBuildBody, updateBuildBody, idParam, errorResponse } from '../schemas/api'
+import { createBuildBody, updateBuildBody, createGroupBody, idParam, errorResponse } from '../schemas/api'
 import type { AppDb } from '../services/builds'
 
 /** Builds CRUD. Resolves optional userId from Clerk JWT; scopes list/create/mutate by user. */
@@ -51,6 +51,24 @@ export const buildsRoutes = (
     }, {
       params: idParam,
       response: { 200: t.Any(), 404: errorResponse },
+    })
+    .post('/builds/:id/groups', async ({ db, userId, params, body, set }) => {
+      const build = await buildsService.getBuildById(db, params.id)
+      if (!build) return notFound(set, 'Build')
+      if (build.userId && build.userId !== userId) return notFound(set, 'Build')
+      const group = await createGroup(db, params.id, {
+        name: body.name,
+        slotIds: body.slotIds,
+      })
+      if (!group) {
+        set.status = 400
+        return { error: 'Invalid name or slotIds' }
+      }
+      return group
+    }, {
+      params: idParam,
+      body: createGroupBody,
+      response: { 200: t.Object({ id: t.String(), name: t.String() }), 400: t.Object({ error: t.String() }), 404: errorResponse },
     })
     .patch('/builds/:id', async ({ db, userId, params, body, set }) => {
       const existing = await buildsService.getBuildById(db, params.id)

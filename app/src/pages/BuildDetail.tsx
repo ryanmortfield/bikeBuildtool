@@ -8,8 +8,16 @@ import type { ComponentDef } from '@/types/api'
 import type { Scaffold, ScaffoldSlot } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { PartCombobox } from '@/components/PartCombobox'
-import { CombinationCard } from '@/components/CombinationCard'
 import { AddCustomComponentDialog } from '@/components/AddCustomComponentDialog'
 import { BuildSummary } from '@/components/BuildSummary'
 import { getBuildPartDisplayName } from '@/lib/buildPart'
@@ -58,38 +66,23 @@ function slotByComponentKey(scaffold: Scaffold | undefined): Map<string, Scaffol
   return map
 }
 
-type ScaffoldBlock =
-  | { type: 'composite'; compositeGroup: string; components: ComponentDef[] }
-  | { type: 'single'; component: ComponentDef }
-
-/** Split component list into composite groups and single rows for scaffold rendering. */
-function toScaffoldBlocks(comps: ComponentDef[]): ScaffoldBlock[] {
-  const blocks: ScaffoldBlock[] = []
-  let i = 0
-  while (i < comps.length) {
-    const comp = comps[i]
-    if (comp.compositeGroup) {
-      const group = comp.compositeGroup
-      const groupComps: ComponentDef[] = [comp]
-      i++
-      while (i < comps.length && comps[i].compositeGroup === group) {
-        groupComps.push(comps[i])
-        i++
-      }
-      blocks.push({ type: 'composite', compositeGroup: group, components: groupComps })
-    } else {
-      blocks.push({ type: 'single', component: comp })
-      i++
-    }
-  }
-  return blocks
-}
-
 export function BuildDetail() {
   const { id } = useParams<{ id: string }>()
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [addDialogGroup, setAddDialogGroup] = useState<string | null>(null)
+  const [selectedSlotIds, setSelectedSlotIds] = useState<Set<string>>(new Set())
+  const [groupDialogOpen, setGroupDialogOpen] = useState(false)
+  const [groupName, setGroupName] = useState('')
   const queryClient = useQueryClient()
+
+  const toggleSlotSelected = (slotId: string) => {
+    setSelectedSlotIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(slotId)) next.delete(slotId)
+      else next.add(slotId)
+      return next
+    })
+  }
 
   const { data: build, isLoading, error } = useQuery<Build>({
     queryKey: ['builds', id],
@@ -116,6 +109,20 @@ export function BuildDetail() {
       api.delete(`/api/builds/${id}/parts/${rowId}`) as Promise<{ deleted: true }>,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['builds', id, 'parts'] })
+    },
+  })
+
+  const createGroup = useMutation({
+    mutationFn: (name: string) =>
+      api.post<{ id: string; name: string }>(`/api/builds/${id}/groups`, {
+        name,
+        slotIds: Array.from(selectedSlotIds),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['builds', id, 'scaffold'] })
+      setSelectedSlotIds(new Set())
+      setGroupName('')
+      setGroupDialogOpen(false)
     },
   })
 
@@ -224,6 +231,25 @@ export function BuildDetail() {
           <p className="text-sm text-muted-foreground">
             Pick a part for each component from the catalog or add a custom part. Use “Add additional component” under each section to add a new row with its own part picker.
           </p>
+          {selectedSlotIds.size >= 2 && (
+            <div className="flex items-center gap-2 mt-2">
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => setGroupDialogOpen(true)}
+              >
+                Group selected ({selectedSlotIds.size})
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelectedSlotIds(new Set())}
+              >
+                Clear selection
+              </Button>
+            </div>
+          )}
         </CardHeader>
         <CardContent className="space-y-8">
           {Array.from(groups.entries()).map(([groupName, comps]) => {
@@ -236,82 +262,83 @@ export function BuildDetail() {
               <div key={groupName}>
                 <h3 className="text-sm font-semibold text-muted-foreground mb-3">{groupName}</h3>
                 <div className="space-y-3">
-                  {toScaffoldBlocks(comps).map((block) =>
-                    block.type === 'composite' ? (
-                      <CombinationCard
-                        key={block.compositeGroup}
-                        buildId={id}
-                        compositeGroup={block.compositeGroup}
-                        components={block.components}
-                        partsBySlot={partsBySlot}
-                        slotByComponentKey={slotMap}
-                        removePart={(rowId) => removePart.mutate(rowId)}
-                        removePartPending={removePart.isPending}
-                        refetchParts={refetchParts}
-                      />
-                    ) : (() => {
-                      const comp = block.component
-                      const slot = slotMap.get(comp.key)
-                      const list = getPartsForSlot(slot, comp.key)
-                      const primary = list[0] ?? null
-                      const extras = list.slice(1)
-                      return (
-                        <div key={comp.key} className="space-y-1">
-                          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-                            <label className="sm:w-56 shrink-0 text-sm font-medium">
+                  {comps.map((comp) => {
+                    const slot = slotMap.get(comp.key)
+                    const list = getPartsForSlot(slot, comp.key)
+                    const primary = list[0] ?? null
+                    const extras = list.slice(1)
+                    return (
+                      <div key={comp.key} className="space-y-1">
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+                          <div className="flex items-center gap-2 sm:w-56 shrink-0 min-w-0">
+                            {slot && (
+                              <input
+                                type="checkbox"
+                                checked={selectedSlotIds.has(slot.id)}
+                                onChange={() => toggleSlotSelected(slot.id)}
+                                className="h-4 w-4 rounded border-input"
+                                aria-label={`Select ${comp.label} for grouping`}
+                              />
+                            )}
+                            <label className="text-sm font-medium truncate">
                               {comp.label}
+                              {slot?.group && (
+                                <span className="ml-2 text-xs font-normal text-muted-foreground">
+                                  (Group: {slot.group.name})
+                                </span>
+                              )}
                             </label>
-                            <div className="flex-1 flex items-center gap-2 min-w-0">
-                              <div className="min-w-0 max-w-sm flex-1">
-                                <PartCombobox
-                                  buildId={id}
-                                  componentKey={comp.key}
-                                  componentLabel={comp.label}
-                                  current={primary}
-                                  onSuccess={refetchParts}
-                                  buildSlotId={slot?.id}
-                                />
-                              </div>
-                              {primary && (
+                          </div>
+                          <div className="flex-1 flex items-center gap-2 min-w-0">
+                            <div className="min-w-0 max-w-sm flex-1">
+                              <PartCombobox
+                                buildId={id}
+                                componentKey={comp.key}
+                                componentLabel={comp.label}
+                                current={primary}
+                                onSuccess={refetchParts}
+                                buildSlotId={slot?.id}
+                              />
+                            </div>
+                            {primary && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="shrink-0 text-muted-foreground hover:text-destructive"
+                                onClick={() => removePart.mutate(primary.id)}
+                                disabled={removePart.isPending}
+                              >
+                                Remove
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                        {extras.length > 0 && (
+                          <div className="sm:pl-[14.5rem] flex flex-wrap gap-2">
+                            {extras.map((bp) => (
+                              <span
+                                key={bp.id}
+                                className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-sm"
+                              >
+                                {getBuildPartDisplayName(bp)}
                                 <Button
                                   type="button"
                                   variant="ghost"
                                   size="sm"
-                                  className="shrink-0 text-muted-foreground hover:text-destructive"
-                                  onClick={() => removePart.mutate(primary.id)}
+                                  className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                                  onClick={() => removePart.mutate(bp.id)}
                                   disabled={removePart.isPending}
                                 >
-                                  Remove
+                                  ×
                                 </Button>
-                              )}
-                            </div>
+                              </span>
+                            ))}
                           </div>
-                          {extras.length > 0 && (
-                            <div className="sm:pl-[14.5rem] flex flex-wrap gap-2">
-                              {extras.map((bp) => (
-                                <span
-                                  key={bp.id}
-                                  className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-sm"
-                                >
-                                  {getBuildPartDisplayName(bp)}
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
-                                    onClick={() => removePart.mutate(bp.id)}
-                                    disabled={removePart.isPending}
-                                  >
-                                    ×
-                                  </Button>
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })()
-                  )}
+                        )}
+                      </div>
+                    )
+                  })}
                   {customParts.map((bp) => (
                     <div key={bp.id} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
                       <label className="sm:w-56 shrink-0 text-sm font-medium">
@@ -371,6 +398,43 @@ export function BuildDetail() {
           buildSlotId={slotMap.get(CUSTOM_COMPONENT_KEY_BY_GROUP[addDialogGroup]!)?.id}
         />
       )}
+
+      <Dialog open={groupDialogOpen} onOpenChange={setGroupDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create group</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="group-name">Group name</Label>
+            <Input
+              id="group-name"
+              value={groupName}
+              onChange={(e) => setGroupName(e.target.value)}
+              placeholder="e.g. Crankset"
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setGroupDialogOpen(false)
+                setGroupName('')
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                const name = groupName.trim()
+                if (name) createGroup.mutate(name)
+              }}
+              disabled={!groupName.trim() || createGroup.isPending}
+            >
+              {createGroup.isPending ? 'Creating…' : 'Create group'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       </div>
     </div>
   )
