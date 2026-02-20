@@ -10,6 +10,11 @@ export type ComponentKey =
   | 'headset_spacers'
   | 'thru_axles'
   | 'crankset'
+  | 'crank_arms'
+  | 'chainrings'
+  | 'spider'
+  | 'crankset_hardware'
+  | 'powermeter'
   | 'bottom_bracket'
   | 'chain'
   | 'cassette'
@@ -49,6 +54,8 @@ export interface ComponentDef {
   key: ComponentKey
   label: string
   group: ComponentGroup
+  /** When set, this component is shown inside a combination card with others sharing the same compositeGroup. */
+  compositeGroup?: string
 }
 
 export const COMPONENTS: ComponentDef[] = [
@@ -57,7 +64,12 @@ export const COMPONENTS: ComponentDef[] = [
   { key: 'headset', label: 'Headset', group: 'Frameset' },
   { key: 'headset_spacers', label: 'Headset Spacers', group: 'Frameset' },
   { key: 'thru_axles', label: 'Thru-Axles / Quick Releases', group: 'Frameset' },
-  { key: 'crankset', label: 'Crankset (one complete part or Crank arms + Chainrings + Hardware)', group: 'Drivetrain' },
+  { key: 'crankset', label: 'Complete crankset', group: 'Drivetrain', compositeGroup: 'crankset' },
+  { key: 'crank_arms', label: 'Crank arms', group: 'Drivetrain', compositeGroup: 'crankset' },
+  { key: 'chainrings', label: 'Chainrings', group: 'Drivetrain', compositeGroup: 'crankset' },
+  { key: 'spider', label: 'Spider', group: 'Drivetrain', compositeGroup: 'crankset' },
+  { key: 'crankset_hardware', label: 'Hardware', group: 'Drivetrain', compositeGroup: 'crankset' },
+  { key: 'powermeter', label: 'Powermeter', group: 'Drivetrain', compositeGroup: 'crankset' },
   { key: 'bottom_bracket', label: 'Bottom Bracket', group: 'Drivetrain' },
   { key: 'chain', label: 'Chain', group: 'Drivetrain' },
   { key: 'cassette', label: 'Cassette', group: 'Drivetrain' },

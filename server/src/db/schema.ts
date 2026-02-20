@@ -18,6 +18,47 @@ export const builds = sqliteTable('builds', {
 })
 
 /**
+ * Per-build categories (e.g. Drivetrain, Braking). User can add/remove/rename/reorder.
+ */
+export const buildCategories = sqliteTable('build_categories', {
+  id: text('id').primaryKey(),
+  buildId: text('build_id')
+    .notNull()
+    .references(() => builds.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  sortOrder: integer('sort_order').notNull().default(0),
+})
+
+/**
+ * Per-build groups: named set of slots (e.g. "Crankset"). Movable between categories.
+ */
+export const buildGroups = sqliteTable('build_groups', {
+  id: text('id').primaryKey(),
+  buildId: text('build_id')
+    .notNull()
+    .references(() => builds.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  categoryId: text('category_id').references(() => buildCategories.id, { onDelete: 'set null' }),
+  sortOrder: integer('sort_order').notNull().default(0),
+})
+
+/**
+ * Per-build slots: one row in the scaffold. Each slot has a component type and lives in a category (and optionally in a group).
+ */
+export const buildSlots = sqliteTable('build_slots', {
+  id: text('id').primaryKey(),
+  buildId: text('build_id')
+    .notNull()
+    .references(() => builds.id, { onDelete: 'cascade' }),
+  categoryId: text('category_id')
+    .notNull()
+    .references(() => buildCategories.id, { onDelete: 'cascade' }),
+  groupId: text('group_id').references(() => buildGroups.id, { onDelete: 'set null' }),
+  componentKey: text('component_key').notNull(),
+  sortOrder: integer('sort_order').notNull().default(0),
+})
+
+/**
  * Catalog of parts. component (key) must be one of the component keys; optional sub-types for crankset and handlebars_stem.
  */
 export const parts = sqliteTable('parts', {
@@ -37,19 +78,20 @@ export const parts = sqliteTable('parts', {
 })
 
 /**
- * Junction: which part(s) are in which component per build.
- * Either catalog part (partId set) or custom/wildcard (partId null, customName required).
+ * Junction: which part(s) are on which slot per build.
+ * References build_slots; component is denormalized for compatibility.
  */
 export const buildParts = sqliteTable('build_parts', {
   id: text('id').primaryKey(),
   buildId: text('build_id')
     .notNull()
     .references(() => builds.id, { onDelete: 'cascade' }),
+  buildSlotId: text('build_slot_id').references(() => buildSlots.id, { onDelete: 'cascade' }),
+  /** Denormalized from slot's component_key; kept for backfill and compatibility. */
   component: text('component').notNull(),
   partId: text('part_id').references(() => parts.id, { onDelete: 'set null' }),
   quantity: integer('quantity').notNull().default(1),
   notes: text('notes'),
-  /** Display label for "additional component" rows; preserved when user adds a custom part to the row. */
   componentLabel: text('component_label'),
   customName: text('custom_name'),
   customWeightG: integer('custom_weight_g'),
@@ -61,6 +103,12 @@ export const buildParts = sqliteTable('build_parts', {
 
 export type Build = typeof builds.$inferSelect
 export type NewBuild = typeof builds.$inferInsert
+export type BuildCategory = typeof buildCategories.$inferSelect
+export type NewBuildCategory = typeof buildCategories.$inferInsert
+export type BuildGroup = typeof buildGroups.$inferSelect
+export type NewBuildGroup = typeof buildGroups.$inferInsert
+export type BuildSlot = typeof buildSlots.$inferSelect
+export type NewBuildSlot = typeof buildSlots.$inferInsert
 export type Part = typeof parts.$inferSelect
 export type NewPart = typeof parts.$inferInsert
 export type BuildPart = typeof buildParts.$inferSelect

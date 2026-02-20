@@ -2,6 +2,7 @@ import { eq, desc } from 'drizzle-orm'
 import { builds } from '../db/schema'
 import { createId } from '../lib/id'
 import type { Build } from '../db/schema'
+import { ensureBuildLayout } from './scaffold'
 
 /** Database instance type (Drizzle with schema). Dependency inversion: services depend on this abstraction. */
 export type AppDb = ReturnType<typeof import('drizzle-orm/d1').drizzle>
@@ -40,6 +41,7 @@ export async function createBuild(
       updatedAt: now,
     })
     .returning()
+  await ensureBuildLayout(db, id)
   return row ?? { id, userId: input.userId ?? null, name: input.name, bikeType: input.bikeType, createdAt: now, updatedAt: now } as Build
 }
 

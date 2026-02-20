@@ -1,5 +1,6 @@
 import { Elysia, t } from 'elysia'
 import * as buildsService from '../services/builds'
+import { getScaffold } from '../services/scaffold'
 import { getUserIdFromRequest } from '../lib/auth'
 import { notFound } from '../lib/responses'
 import { createBuildBody, updateBuildBody, idParam, errorResponse } from '../schemas/api'
@@ -38,6 +39,15 @@ export const buildsRoutes = (
       if (!row) return notFound(set, 'Build')
       if (row.userId && row.userId !== userId) return notFound(set, 'Build')
       return row
+    }, {
+      params: idParam,
+      response: { 200: t.Any(), 404: errorResponse },
+    })
+    .get('/builds/:id/scaffold', async ({ db, userId, params, set }) => {
+      const build = await buildsService.getBuildById(db, params.id)
+      if (!build) return notFound(set, 'Build')
+      if (build.userId && build.userId !== userId) return notFound(set, 'Build')
+      return getScaffold(db, params.id)
     }, {
       params: idParam,
       response: { 200: t.Any(), 404: errorResponse },

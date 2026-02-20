@@ -36,6 +36,8 @@ interface AddCustomComponentDialogProps {
   onOpenChange: (open: boolean) => void
   groupName: string
   componentKey: string
+  /** When set (scaffold-driven), new part is created with this slot. */
+  buildSlotId?: string | null
 }
 
 export function AddCustomComponentDialog({
@@ -44,6 +46,7 @@ export function AddCustomComponentDialog({
   onOpenChange,
   groupName,
   componentKey,
+  buildSlotId,
 }: AddCustomComponentDialogProps) {
   const queryClient = useQueryClient()
   const form = useForm<FormValues>({
@@ -55,7 +58,8 @@ export function AddCustomComponentDialog({
     mutationFn: (body: FormValues) => {
       const name = body.customName.trim()
       return api.post<BuildPartWithPart>(`/api/builds/${buildId}/parts`, {
-        component: componentKey,
+        ...(buildSlotId && { buildSlotId }),
+        ...(!buildSlotId && { component: componentKey }),
         customName: name,
         componentLabel: name,
       })

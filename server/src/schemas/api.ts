@@ -65,9 +65,11 @@ export const updatePartBody = t.Object({
   handlebarsStemComponentType: t.Optional(t.Nullable(t.String())),
 })
 
-/** Build parts – either catalog part or custom. */
+/** Build parts – either catalog part or custom. Prefer build_slot_id when using scaffold. */
 export const createBuildPartBody = t.Object({
-  component: t.String(),
+  build_slot_id: t.Optional(t.Nullable(t.String())),
+  buildSlotId: t.Optional(t.Nullable(t.String())),
+  component: t.Optional(t.String()),
   part_id: t.Optional(t.Nullable(t.String())),
   partId: t.Optional(t.Nullable(t.String())),
   quantity: t.Optional(t.Number()),

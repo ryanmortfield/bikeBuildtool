@@ -27,6 +27,8 @@ export interface Part {
 export interface BuildPart {
   id: string
   buildId: string
+  /** When using scaffold, part is tied to this slot. */
+  buildSlotId?: string | null
   component: string
   partId: string | null
   quantity: number
@@ -48,4 +50,27 @@ export interface ComponentDef {
   key: string
   label: string
   group: string
+  /** When set, this component is shown inside a combination card with others sharing the same compositeGroup. */
+  compositeGroup?: string
+}
+
+/** Scaffold: categories and slots for a build (from GET /api/builds/:id/scaffold). */
+export interface ScaffoldSlot {
+  id: string
+  componentKey: string
+  sortOrder: number
+  groupId: string | null
+  group: { id: string; name: string } | null
+}
+
+export interface ScaffoldCategory {
+  id: string
+  name: string
+  sortOrder: number
+  slots: ScaffoldSlot[]
+}
+
+export interface Scaffold {
+  categories: ScaffoldCategory[]
+  groups: Array<{ id: string; name: string; categoryId: string | null; sortOrder: number }>
 }

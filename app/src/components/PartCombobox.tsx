@@ -30,8 +30,12 @@ interface PartComboboxProps {
   componentLabel: string
   current: BuildPartWithPart | null
   onSuccess: () => void
+  /** When set, new parts are created with this slot (scaffold-driven). */
+  buildSlotId?: string | null
   /** For custom_* components: load parts from this group (component keys). */
   componentKeysInGroup?: string[]
+  /** When set and current is null, show this as the button label (e.g. "Add chainring"). */
+  addSlotLabel?: string
 }
 
 export function PartCombobox({
@@ -40,7 +44,9 @@ export function PartCombobox({
   componentLabel,
   current,
   onSuccess,
+  buildSlotId,
   componentKeysInGroup,
+  addSlotLabel,
 }: PartComboboxProps) {
   const [open, setOpen] = React.useState(false)
   const [showCustomForm, setShowCustomForm] = React.useState(false)
@@ -88,7 +94,8 @@ export function PartCombobox({
         await api.delete(`/api/builds/${buildId}/parts/${current.id}`)
       }
       return api.post<BuildPartWithPart>(`/api/builds/${buildId}/parts`, {
-        component: componentKey,
+        ...(buildSlotId && { buildSlotId }),
+        ...(!buildSlotId && { component: componentKey }),
         ...(body.partId && { partId: body.partId }),
         ...(body.customName && { customName: body.customName }),
         ...(body.customWeightG != null && body.customWeightG > 0 && { customWeightG: body.customWeightG }),
@@ -134,7 +141,7 @@ export function PartCombobox({
     (current != null && getBuildPartPartName(current) != null)
   const displayLabel = hasChosenPart && current
     ? (getBuildPartPartName(current) ?? getBuildPartDisplayName(current))
-    : `Choose part for ${componentLabel}…`
+    : (addSlotLabel ?? `Choose part for ${componentLabel}…`)
   const showPlaceholderStyle = !hasChosenPart
   const isCustomPart = current != null && !current.partId && (current.customName != null || (current as { custom_name?: string }).custom_name != null)
 

@@ -1,9 +1,10 @@
 import { eq, and } from 'drizzle-orm'
-import { buildParts, parts, builds } from '../db/schema'
+import { buildParts, buildSlots, parts, builds } from '../db/schema'
 import { isComponentKey } from '../db/components'
 import { createId } from '../lib/id'
 import type { BuildPart } from '../db/schema'
 import type { AppDb } from './builds'
+import { ensureBuildLayout } from './scaffold'
 
 function pickStr(b: Record<string, unknown>, ...keys: string[]): string | null {
   for (const k of keys) if (typeof b[k] === 'string') return b[k] as string
@@ -22,6 +23,7 @@ function toBuildPartResponse(
   return {
     id: row.id,
     buildId: row.buildId ?? (row as Record<string, unknown>).build_id,
+    buildSlotId: row.buildSlotId ?? (row as Record<string, unknown>).build_slot_id ?? null,
     component: row.component,
     partId: row.partId ?? (row as Record<string, unknown>).part_id ?? null,
     quantity: row.quantity ?? 1,
@@ -60,7 +62,17 @@ export async function addBuildPart(
   buildId: string,
   body: Record<string, unknown>
 ): Promise<{ row: BuildPart; part: (typeof parts.$inferSelect) | null; response: Record<string, unknown> } | null> {
-  const component = pickStr(body, 'component')
+  let buildSlotId = pickStr(body, 'build_slot_id', 'buildSlotId')
+  let component = pickStr(body, 'component')
+  if (buildSlotId) {
+    const [slot] = await db.select().from(buildSlots).where(and(eq(buildSlots.id, buildSlotId), eq(buildSlots.buildId, buildId)))
+    if (!slot) return null
+    component = slot.componentKey
+  } else if (component && isComponentKey(component)) {
+    await ensureBuildLayout(db, buildId)
+    const [slot] = await db.select().from(buildSlots).where(and(eq(buildSlots.buildId, buildId), eq(buildSlots.componentKey, component!)))
+    buildSlotId = slot?.id ?? null
+  }
   if (!component || !isComponentKey(component)) return null
   const partId = pickStr(body, 'part_id', 'partId')
   const customName = pickStr(body, 'custom_name', 'customName')
@@ -71,6 +83,7 @@ export async function addBuildPart(
   await db.insert(buildParts).values({
     id,
     buildId,
+    buildSlotId: buildSlotId || null,
     component,
     partId: partId || null,
     quantity,
