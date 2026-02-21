@@ -10,9 +10,10 @@ export function getBuildPartDisplayName(bp: BuildPartWithPart | (BuildPartWithPa
   return 'Custom component'
 }
 
-/** Part name for combobox/display (catalog part name or custom part name). */
-export function getBuildPartPartName(bp: BuildPartWithPart | (BuildPartWithPart & { custom_name?: string | null })): string | null {
-  if (bp.part?.name) return bp.part.name
+/** Part name for combobox/display (catalog part name or custom part name). Handles part from API (camelCase or snake_case). */
+export function getBuildPartPartName(bp: BuildPartWithPart | (BuildPartWithPart & { custom_name?: string | null; part?: { name?: string } | null })): string | null {
+  const partName = bp.part?.name ?? (bp as { part?: { name?: string } }).part?.name
+  if (partName) return partName
   const name = bp.customName ?? (bp as { custom_name?: string | null }).custom_name
   return name ?? null
 }

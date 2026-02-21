@@ -40,14 +40,17 @@ function toBuildPartResponse(
 /** Single responsibility: build-parts junction data access. */
 export async function listByBuildId(db: AppDb, buildId: string) {
   const rows = await db.select().from(buildParts).where(eq(buildParts.buildId, buildId))
-  const partIds = [...new Set(rows.map((r) => r.partId).filter(Boolean))] as string[]
+  const rowPartId = (r: (typeof rows)[0]) =>
+    r.partId ?? (r as Record<string, unknown>).part_id ?? null
+  const partIds = [...new Set(rows.map((r) => rowPartId(r)).filter(Boolean))] as string[]
   const partMap = new Map<string, (typeof parts.$inferSelect) | null>()
   for (const id of partIds) {
     const [p] = await db.select().from(parts).where(eq(parts.id, id))
     partMap.set(id, p ?? null)
   }
   return rows.map((r) => {
-    const part = r.partId ? partMap.get(r.partId) ?? null : null
+    const pid = rowPartId(r)
+    const part = pid ? partMap.get(pid) ?? null : null
     return toBuildPartResponse(r as unknown as Record<string, unknown>, part)
   })
 }

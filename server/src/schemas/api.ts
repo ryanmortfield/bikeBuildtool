@@ -34,6 +34,11 @@ export const reorderSlotsBody = t.Object({
   slotIds: t.Array(t.String()),
 })
 
+/** Add a slot (component row) to a category. */
+export const addSlotBody = t.Object({
+  componentKey: t.String(),
+})
+
 /** Parts – component is required and validated in handler against COMPONENT_KEYS. */
 export const createPartBody = t.Object({
   name: t.String(),

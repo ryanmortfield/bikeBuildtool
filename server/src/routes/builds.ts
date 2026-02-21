@@ -1,9 +1,9 @@
 import { Elysia, t } from 'elysia'
 import * as buildsService from '../services/builds'
-import { getScaffold, createGroup, reorderSlots } from '../services/scaffold'
+import { getScaffold, createGroup, reorderSlots, addSlot, removeSlot } from '../services/scaffold'
 import { getUserIdFromRequest } from '../lib/auth'
 import { notFound } from '../lib/responses'
-import { createBuildBody, updateBuildBody, createGroupBody, reorderSlotsBody, idParam, errorResponse } from '../schemas/api'
+import { createBuildBody, updateBuildBody, createGroupBody, reorderSlotsBody, addSlotBody, idParam, errorResponse } from '../schemas/api'
 import type { AppDb } from '../services/builds'
 
 /** Builds CRUD. Resolves optional userId from Clerk JWT; scopes list/create/mutate by user. */
@@ -84,6 +84,32 @@ export const buildsRoutes = (
       params: t.Object({ id: t.String(), categoryId: t.String() }),
       body: reorderSlotsBody,
       response: { 200: t.Object({ ok: t.Literal(true) }), 400: t.Object({ error: t.String() }), 404: errorResponse },
+    })
+    .post('/builds/:id/categories/:categoryId/slots', async ({ db, userId, params, body, set }) => {
+      const build = await buildsService.getBuildById(db, params.id)
+      if (!build) return notFound(set, 'Build')
+      if (build.userId && build.userId !== userId) return notFound(set, 'Build')
+      const result = await addSlot(db, params.id, params.categoryId, body.componentKey)
+      if (!result) {
+        set.status = 400
+        return { error: 'Invalid category or componentKey for this category' }
+      }
+      return result
+    }, {
+      params: t.Object({ id: t.String(), categoryId: t.String() }),
+      body: addSlotBody,
+      response: { 200: t.Object({ id: t.String(), componentKey: t.String(), sortOrder: t.Number() }), 400: t.Object({ error: t.String() }), 404: errorResponse },
+    })
+    .delete('/builds/:id/slots/:slotId', async ({ db, userId, params, set }) => {
+      const build = await buildsService.getBuildById(db, params.id)
+      if (!build) return notFound(set, 'Build')
+      if (build.userId && build.userId !== userId) return notFound(set, 'Build')
+      const ok = await removeSlot(db, params.id, params.slotId)
+      if (!ok) return notFound(set, 'Slot')
+      return { deleted: true as const }
+    }, {
+      params: t.Object({ id: t.String(), slotId: t.String() }),
+      response: { 200: t.Object({ deleted: t.Literal(true) }), 404: errorResponse },
     })
     .patch('/builds/:id', async ({ db, userId, params, body, set }) => {
       const existing = await buildsService.getBuildById(db, params.id)

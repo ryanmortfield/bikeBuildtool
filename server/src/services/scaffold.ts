@@ -1,6 +1,6 @@
 import { eq, and, isNull, inArray } from 'drizzle-orm'
 import { buildCategories, buildSlots, buildGroups, buildParts } from '../db/schema'
-import { COMPONENTS, type ComponentKey } from '../db/components'
+import { COMPONENTS, COMPONENT_KEYS, isComponentKey, type ComponentKey } from '../db/components'
 import { createId } from '../lib/id'
 import type { AppDb } from './builds'
 
@@ -205,5 +205,61 @@ export async function reorderSlots(
   for (let i = 0; i < slotIds.length; i++) {
     await db.update(buildSlots).set({ sortOrder: i }).where(eq(buildSlots.id, slotIds[i]!))
   }
+  return true
+}
+
+const CUSTOM_KEY_TO_GROUP: Record<string, string> = {
+  custom_frameset: 'Frameset',
+  custom_drivetrain: 'Drivetrain',
+  custom_braking: 'Braking & control',
+  custom_wheelset: 'Wheelset',
+  custom_cockpit: 'Cockpit',
+}
+
+/**
+ * Add a slot (component row) to a category. componentKey must be valid for the category's group.
+ */
+export async function addSlot(
+  db: AppDb,
+  buildId: string,
+  categoryId: string,
+  componentKey: string
+): Promise<{ id: string; componentKey: string; sortOrder: number } | null> {
+  if (!isComponentKey(componentKey)) return null
+  const [category] = await db
+    .select()
+    .from(buildCategories)
+    .where(and(eq(buildCategories.buildId, buildId), eq(buildCategories.id, categoryId)))
+  if (!category) return null
+  const comp = COMPONENTS.find((c) => c.key === componentKey)
+  const groupForKey = comp ? comp.group : CUSTOM_KEY_TO_GROUP[componentKey]
+  if (!groupForKey || groupForKey !== category.name) return null
+  const slotsInCategory = await db
+    .select({ sortOrder: buildSlots.sortOrder })
+    .from(buildSlots)
+    .where(and(eq(buildSlots.buildId, buildId), eq(buildSlots.categoryId, categoryId)))
+  const nextOrder = slotsInCategory.length > 0 ? Math.max(...slotsInCategory.map((r) => r.sortOrder)) + 1 : 0
+  const slotId = createId()
+  await db.insert(buildSlots).values({
+    id: slotId,
+    buildId,
+    categoryId,
+    componentKey: componentKey as ComponentKey,
+    sortOrder: nextOrder,
+  })
+  return { id: slotId, componentKey, sortOrder: nextOrder }
+}
+
+/**
+ * Remove a slot (component row) and all build parts attached to it.
+ */
+export async function removeSlot(db: AppDb, buildId: string, slotId: string): Promise<boolean> {
+  const [slot] = await db
+    .select()
+    .from(buildSlots)
+    .where(and(eq(buildSlots.buildId, buildId), eq(buildSlots.id, slotId)))
+  if (!slot) return false
+  await db.delete(buildParts).where(eq(buildParts.buildSlotId, slotId))
+  await db.delete(buildSlots).where(eq(buildSlots.id, slotId))
   return true
 }

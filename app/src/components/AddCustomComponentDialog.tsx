@@ -36,8 +36,10 @@ interface AddCustomComponentDialogProps {
   onOpenChange: (open: boolean) => void
   groupName: string
   componentKey: string
-  /** When set (scaffold-driven), new part is created with this slot. */
-  buildSlotId?: string | null
+  /** When set, a new slot (row) is created first, then the part is added to it so the new row has a remove button. */
+  categoryId?: string | null
+  /** Called with the new slot id after the row and part are created (so the part picker can be auto-opened). */
+  onAddedSlot?: (slotId: string) => void
 }
 
 export function AddCustomComponentDialog({
@@ -46,7 +48,8 @@ export function AddCustomComponentDialog({
   onOpenChange,
   groupName,
   componentKey,
-  buildSlotId,
+  categoryId,
+  onAddedSlot,
 }: AddCustomComponentDialogProps) {
   const queryClient = useQueryClient()
   const form = useForm<FormValues>({
@@ -55,19 +58,30 @@ export function AddCustomComponentDialog({
   })
 
   const addPart = useMutation({
-    mutationFn: (body: FormValues) => {
+    mutationFn: async (body: FormValues) => {
       const name = body.customName.trim()
-      return api.post<BuildPartWithPart>(`/api/builds/${buildId}/parts`, {
+      let buildSlotId: string | undefined
+      if (categoryId) {
+        const slot = await api.post<{ id: string }>(
+          `/api/builds/${buildId}/categories/${categoryId}/slots`,
+          { componentKey }
+        )
+        buildSlotId = slot.id
+      }
+      const part = await api.post<BuildPartWithPart>(`/api/builds/${buildId}/parts`, {
         ...(buildSlotId && { buildSlotId }),
         ...(!buildSlotId && { component: componentKey }),
         customName: name,
         componentLabel: name,
       })
+      return { part, slotId: buildSlotId }
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['builds', buildId, 'parts'] })
+      queryClient.invalidateQueries({ queryKey: ['builds', buildId, 'scaffold'] })
       form.reset({ customName: '' })
       onOpenChange(false)
+      if (data.slotId) onAddedSlot?.(data.slotId)
     },
   })
 
@@ -102,7 +116,7 @@ export function AddCustomComponentDialog({
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={addPart.isPending}>
+              <Button type="submit" disabled={addPart.isPending || !categoryId}>
                 {addPart.isPending ? 'Adding…' : 'Add component'}
               </Button>
             </div>

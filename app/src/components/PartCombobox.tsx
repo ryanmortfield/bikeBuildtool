@@ -36,6 +36,10 @@ interface PartComboboxProps {
   componentKeysInGroup?: string[]
   /** When set and current is null, show this as the button label (e.g. "Add chainring"). */
   addSlotLabel?: string
+  /** When true, open the popover once (e.g. after adding a new row). */
+  autoOpen?: boolean
+  /** Called after auto-opening so parent can clear the trigger. */
+  onAutoOpened?: () => void
 }
 
 export function PartCombobox({
@@ -47,8 +51,16 @@ export function PartCombobox({
   buildSlotId,
   componentKeysInGroup,
   addSlotLabel,
+  autoOpen,
+  onAutoOpened,
 }: PartComboboxProps) {
   const [open, setOpen] = React.useState(false)
+  React.useEffect(() => {
+    if (autoOpen) {
+      setOpen(true)
+      onAutoOpened?.()
+    }
+  }, [autoOpen, onAutoOpened])
   const [showCustomForm, setShowCustomForm] = React.useState(false)
   const [showDetailsView, setShowDetailsView] = React.useState(false)
   const [customName, setCustomName] = React.useState('')
@@ -59,10 +71,11 @@ export function PartCombobox({
   const [editPrice, setEditPrice] = React.useState('')
   const queryClient = useQueryClient()
 
+  const currentPartId = current?.partId ?? (current as { part_id?: string | null })?.part_id ?? null
   const { data: allParts = [], isLoading } = useQuery<Part[]>({
     queryKey: ['parts', 'all'],
     queryFn: () => api.get<Part[]>('/api/parts'),
-    enabled: open,
+    enabled: open || currentPartId != null,
   })
 
   const parts = React.useMemo(() => {
@@ -114,15 +127,26 @@ export function PartCombobox({
   })
 
   const updateCustomPart = useMutation({
-    mutationFn: (body: { customName: string; customWeightG?: number; customPrice?: number }) =>
-      api.patch<BuildPartWithPart>(`/api/builds/${buildId}/parts/${current!.id}`, {
-        customName: body.customName.trim(),
-        ...(body.customWeightG != null && body.customWeightG > 0 && { customWeightG: body.customWeightG }),
-        ...(body.customPrice != null && body.customPrice >= 0 && { customPrice: body.customPrice }),
+    mutationFn: ({
+      buildPartId,
+      customName,
+      customWeightG,
+      customPrice,
+    }: {
+      buildPartId: string
+      customName: string
+      customWeightG?: number
+      customPrice?: number
+    }) =>
+      api.patch<BuildPartWithPart>(`/api/builds/${buildId}/parts/${buildPartId}`, {
+        customName: customName.trim(),
+        ...(customWeightG != null && customWeightG > 0 && { customWeightG }),
+        ...(customPrice != null && customPrice >= 0 && { customPrice }),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['builds', buildId, 'parts'] })
       onSuccess()
+      setOpen(false)
     },
   })
 
@@ -138,9 +162,15 @@ export function PartCombobox({
   const hasChosenPart =
     current?.part != null ||
     (current?.partId != null) ||
+    (currentPartId != null) ||
     (current != null && getBuildPartPartName(current) != null)
+  const catalogNameById = currentPartId ? allParts.find((p) => p.id === currentPartId)?.name ?? null : null
+  const resolvedPartName =
+    current && hasChosenPart
+      ? getBuildPartPartName(current) ?? catalogNameById ?? getBuildPartDisplayName(current)
+      : null
   const displayLabel = hasChosenPart && current
-    ? (getBuildPartPartName(current) ?? getBuildPartDisplayName(current))
+    ? (resolvedPartName ?? getBuildPartDisplayName(current))
     : (addSlotLabel ?? `Choose part for ${componentLabel}…`)
   const showPlaceholderStyle = !hasChosenPart
   const isCustomPart = current != null && !current.partId && (current.customName != null || (current as { custom_name?: string }).custom_name != null)
@@ -176,8 +206,9 @@ export function PartCombobox({
   const handleSaveCustomPart = (e: React.FormEvent) => {
     e.preventDefault()
     const name = editName.trim()
-    if (!name) return
+    if (!name || !current?.id) return
     updateCustomPart.mutate({
+      buildPartId: current.id,
       customName: name,
       customWeightG: editWeight ? parseInt(editWeight, 10) : undefined,
       customPrice: editPrice ? parseFloat(editPrice) : undefined,
@@ -245,21 +276,11 @@ export function PartCombobox({
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button type="submit" size="sm" disabled={!editName.trim() || updateCustomPart.isPending}>
+                  <Button type="submit" size="sm" disabled={!editName.trim() || !current?.id || updateCustomPart.isPending}>
                     {updateCustomPart.isPending ? 'Saving…' : 'Save'}
                   </Button>
                   <Button type="button" size="sm" variant="outline" onClick={() => setShowDetailsView(false)}>
                     Change part
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="text-destructive hover:text-destructive"
-                    onClick={() => removePart.mutate()}
-                    disabled={removePart.isPending}
-                  >
-                    Remove
                   </Button>
                 </div>
                 {updateCustomPart.isError && (
@@ -287,15 +308,6 @@ export function PartCombobox({
                 <div className="flex flex-wrap gap-2">
                   <Button size="sm" variant="outline" onClick={() => setShowDetailsView(false)}>
                     Change part
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-destructive hover:text-destructive"
-                    onClick={() => removePart.mutate()}
-                    disabled={removePart.isPending}
-                  >
-                    Remove
                   </Button>
                 </div>
               </>

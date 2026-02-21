@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { GridList, GridListItem, GridListSection, GridListHeader, useDragAndDrop } from 'react-aria-components'
 import type { Selection } from 'react-stately'
-import { GripVertical } from 'lucide-react'
+import { GripVertical, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { Build } from '@/types/api'
 import type { BuildPartWithPart } from '@/types/api'
@@ -76,10 +76,13 @@ type ScaffoldCategoryGridListProps = {
   components: ComponentDef[]
   getPartsForSlot: (slot: ScaffoldSlot | undefined, componentKey: string) => BuildPartWithPart[]
   removePart: { mutate: (id: string) => void; isPending: boolean }
+  removeSlot: { mutate: (slotId: string) => void; isPending: boolean }
   refetchParts: () => void
   selectedSlotIds: Set<string>
   onSelectionChange: (keys: Selection) => void
   onReorderSlots: (categoryId: string, slotIds: string[]) => void
+  openPartComboboxForSlotId: string | null
+  onClearAutoOpenPartCombobox: () => void
 }
 
 function ScaffoldCategoryGridList({
@@ -89,12 +92,20 @@ function ScaffoldCategoryGridList({
   components,
   getPartsForSlot,
   removePart,
+  removeSlot,
   refetchParts,
   selectedSlotIds,
   onSelectionChange,
   onReorderSlots,
+  openPartComboboxForSlotId,
+  onClearAutoOpenPartCombobox,
 }: ScaffoldCategoryGridListProps) {
-  const componentKeys = useMemo(() => new Set(components.map((c) => c.key)), [components])
+  const componentKeys = useMemo(() => {
+    const set = new Set(components.map((c) => c.key))
+    const customKey = CUSTOM_COMPONENT_KEY_BY_GROUP[groupName]
+    if (customKey) set.add(customKey)
+    return set
+  }, [components, groupName])
   const slots = useMemo(
     () => category.slots.filter((s) => componentKeys.has(s.componentKey)),
     [category.slots, componentKeys],
@@ -122,6 +133,7 @@ function ScaffoldCategoryGridList({
   })
 
   return (
+    <>
     <GridList
       aria-label={`${groupName} components`}
       layout="stack"
@@ -134,15 +146,24 @@ function ScaffoldCategoryGridList({
       className="outline-none rounded-md border border-border/50 overflow-hidden"
     >
       {(slot: ScaffoldSlot) => {
-        const comp = components.find((c) => c.key === slot.componentKey)!
+        const comp =
+          components.find((c) => c.key === slot.componentKey) ??
+          (CUSTOM_COMPONENT_KEY_BY_GROUP[groupName] === slot.componentKey
+            ? { key: slot.componentKey, label: 'Additional component', group: groupName as ComponentDef['group'] }
+            : null)
+        if (!comp) return null
         const list = getPartsForSlot(slot, comp.key)
         const primary = list[0] ?? null
         const extras = list.slice(1)
+        const isCustomSlot = CUSTOM_COMPONENT_KEY_BY_GROUP[groupName] === slot.componentKey
+        const rowLabel = isCustomSlot && primary
+          ? (primary.componentLabel ?? primary.customName ?? (primary as { custom_name?: string }).custom_name ?? comp.label)
+          : comp.label
         return (
           <GridListItem
             key={slot.id}
             id={slot.id}
-            textValue={comp.label}
+            textValue={rowLabel}
             className="flex flex-col gap-1 border-b border-border/50 last:border-b-0 bg-background px-4 py-3 outline-none data-[selected]:bg-muted/50 data-[focus-visible]:ring-2 data-[focus-visible]:ring-ring data-[focus-visible]:ring-offset-2"
           >
             {() => (
@@ -153,7 +174,7 @@ function ScaffoldCategoryGridList({
                       <GripVertical className="h-4 w-4" aria-hidden />
                     </Button>
                     <span className="text-sm font-medium truncate">
-                      {comp.label}
+                      {rowLabel}
                       {slot?.group && (
                         <span className="ml-2 text-xs font-normal text-muted-foreground">
                           (Group: {slot.group.name})
@@ -166,24 +187,26 @@ function ScaffoldCategoryGridList({
                       <PartCombobox
                         buildId={buildId}
                         componentKey={comp.key}
-                        componentLabel={comp.label}
+                        componentLabel={rowLabel}
                         current={primary}
                         onSuccess={refetchParts}
                         buildSlotId={slot.id}
+                        autoOpen={openPartComboboxForSlotId === slot.id}
+                        onAutoOpened={onClearAutoOpenPartCombobox}
                       />
                     </div>
-                    {primary && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="shrink-0 text-muted-foreground hover:text-destructive"
-                        onClick={() => removePart.mutate(primary.id)}
-                        disabled={removePart.isPending}
-                      >
-                        Remove
-                      </Button>
-                    )}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="shrink-0 text-muted-foreground hover:text-destructive"
+                      onClick={() => removeSlot.mutate(slot.id)}
+                      disabled={removeSlot.isPending}
+                      title="Remove component row"
+                      aria-label="Remove component row"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
                 </div>
                 {extras.length > 0 && (
@@ -214,6 +237,7 @@ function ScaffoldCategoryGridList({
         )
       }}
     </GridList>
+    </>
   )
 }
 
@@ -221,6 +245,8 @@ export function BuildDetail() {
   const { id } = useParams<{ id: string }>()
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [addDialogGroup, setAddDialogGroup] = useState<string | null>(null)
+  const [addDialogCategoryId, setAddDialogCategoryId] = useState<string | null>(null)
+  const [openPartComboboxForSlotId, setOpenPartComboboxForSlotId] = useState<string | null>(null)
   const [selectedSlotIds, setSelectedSlotIds] = useState<Set<string>>(new Set())
   const [groupDialogOpen, setGroupDialogOpen] = useState(false)
   const [groupName, setGroupName] = useState('')
@@ -273,6 +299,15 @@ export function BuildDetail() {
       api.put(`/api/builds/${id}/categories/${categoryId}/slots/reorder`, { slotIds }) as Promise<{ ok: true }>,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['builds', id, 'scaffold'] })
+    },
+  })
+
+  const removeSlot = useMutation({
+    mutationFn: (slotId: string) =>
+      api.delete(`/api/builds/${id}/slots/${slotId}`) as Promise<{ deleted: true }>,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['builds', id, 'scaffold'] })
+      queryClient.invalidateQueries({ queryKey: ['builds', id, 'parts'] })
     },
   })
 
@@ -417,10 +452,6 @@ export function BuildDetail() {
         </CardHeader>
         <CardContent className="space-y-8">
           {Array.from(groups.entries()).map(([groupName, comps]) => {
-            const customKey = CUSTOM_COMPONENT_KEY_BY_GROUP[groupName]
-            const customSlot = customKey ? slotMap.get(customKey) : undefined
-            const customParts = customKey ? getPartsForSlot(customSlot, customKey) : []
-            const groupComponentKeys = comps.map((c) => c.key)
             const category = scaffold?.categories?.find((c) => c.name === groupName)
 
             return (
@@ -434,10 +465,13 @@ export function BuildDetail() {
                     components={components}
                     getPartsForSlot={getPartsForSlot}
                     removePart={removePart}
+                    removeSlot={removeSlot}
                     refetchParts={refetchParts}
                     selectedSlotIds={selectedSlotIds}
                     onSelectionChange={handleSelectionChange}
                     onReorderSlots={(categoryId, slotIds) => reorderSlots.mutate({ categoryId, slotIds })}
+                    openPartComboboxForSlotId={openPartComboboxForSlotId}
+                    onClearAutoOpenPartCombobox={() => setOpenPartComboboxForSlotId(null)}
                   />
                 ) : (
                   <GridList
@@ -488,18 +522,18 @@ export function BuildDetail() {
                                         buildSlotId={slot.id}
                                       />
                                     </div>
-                                    {primary && (
-                                      <Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="sm"
-                                        className="shrink-0 text-muted-foreground hover:text-destructive"
-                                        onClick={() => removePart.mutate(primary.id)}
-                                        disabled={removePart.isPending}
-                                      >
-                                        Remove
-                                      </Button>
-                                    )}
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      className="shrink-0 text-muted-foreground hover:text-destructive"
+                                      onClick={() => removeSlot.mutate(slot.id)}
+                                      disabled={removeSlot.isPending}
+                                      title="Remove component row"
+                                      aria-label="Remove component row"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
                                   </div>
                                 </div>
                                 {extras.length > 0 && (
@@ -532,48 +566,21 @@ export function BuildDetail() {
                     </GridListSection>
                   </GridList>
                 )}
-                {customParts.map((bp) => (
-                    <div key={bp.id} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-                      <label className="sm:w-56 shrink-0 text-sm font-medium">
-                        {getBuildPartDisplayName(bp)}
-                      </label>
-                      <div className="flex-1 flex items-center gap-2 min-w-0">
-                        <div className="min-w-0 max-w-sm flex-1">
-                          <PartCombobox
-                            buildId={id}
-                            componentKey={customKey!}
-                            componentLabel={getBuildPartDisplayName(bp)}
-                            current={bp}
-                            onSuccess={refetchParts}
-                            buildSlotId={customSlot?.id}
-                            componentKeysInGroup={groupComponentKeys}
-                          />
-                        </div>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="shrink-0 text-muted-foreground hover:text-destructive"
-                          onClick={() => removePart.mutate(bp.id)}
-                          disabled={removePart.isPending}
-                        >
-                          Remove
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                <div className="mt-3">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setAddDialogGroup(groupName)
-                      setAddDialogOpen(true)
-                    }}
-                  >
-                    Add additional component
-                  </Button>
-                </div>
+                {category && (
+                  <div className="mt-3">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setAddDialogGroup(groupName)
+                        setAddDialogCategoryId(category.id)
+                        setAddDialogOpen(true)
+                      }}
+                    >
+                      Add additional component
+                    </Button>
+                  </div>
+                )}
               </div>
             )
           })}
@@ -587,7 +594,8 @@ export function BuildDetail() {
           onOpenChange={setAddDialogOpen}
           groupName={addDialogGroup}
           componentKey={CUSTOM_COMPONENT_KEY_BY_GROUP[addDialogGroup]!}
-          buildSlotId={slotMap.get(CUSTOM_COMPONENT_KEY_BY_GROUP[addDialogGroup]!)?.id}
+          categoryId={addDialogCategoryId}
+          onAddedSlot={(slotId) => setOpenPartComboboxForSlotId(slotId)}
         />
       )}
 
