@@ -34,6 +34,22 @@ export const reorderSlotsBody = t.Object({
   slotIds: t.Array(t.String()),
 })
 
+/** Create a section (category). */
+export const createCategoryBody = t.Object({
+  name: t.String(),
+})
+
+/** Update a section (category) – rename. */
+export const updateCategoryBody = t.Object({
+  name: t.String(),
+})
+
+/** Path params: build id + category id. */
+export const categoryIdParam = t.Object({
+  id: t.String(),
+  categoryId: t.String(),
+})
+
 /** Add a slot (component row) to a category. */
 export const addSlotBody = t.Object({
   componentKey: t.String(),

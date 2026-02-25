@@ -3,23 +3,13 @@
 import * as React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import { getBuildPartDisplayName, getBuildPartPartName } from '@/lib/buildPart'
+import { getBuildPartDisplayName, getBuildPartPartName, getBuildPartRowId, getPrimaryPartForSlot, mergeBuildPartIntoList } from '@/lib/buildPart'
 import type { Part } from '@/types/api'
 import type { BuildPartWithPart } from '@/types/api'
 import { Button } from '@/components/ui/button'
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover'
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from '@/components/ui/command'
+import { Popover, PopoverContent } from '@/components/ui/popover'
+import { ListBox, ListBoxItem, Button as RACButton } from 'react-aria-components'
+import { SearchIcon } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
@@ -28,7 +18,6 @@ interface PartComboboxProps {
   buildId: string
   componentKey: string
   componentLabel: string
-  current: BuildPartWithPart | null
   onSuccess: () => void
   /** When set, new parts are created with this slot (scaffold-driven). */
   buildSlotId?: string | null
@@ -46,7 +35,6 @@ export function PartCombobox({
   buildId,
   componentKey,
   componentLabel,
-  current,
   onSuccess,
   buildSlotId,
   componentKeysInGroup,
@@ -55,6 +43,7 @@ export function PartCombobox({
   onAutoOpened,
 }: PartComboboxProps) {
   const [open, setOpen] = React.useState(false)
+  const [searchQuery, setSearchQuery] = React.useState('')
   React.useEffect(() => {
     if (autoOpen) {
       setOpen(true)
@@ -69,7 +58,29 @@ export function PartCombobox({
   const [editName, setEditName] = React.useState('')
   const [editWeight, setEditWeight] = React.useState('')
   const [editPrice, setEditPrice] = React.useState('')
+  const [notesValue, setNotesValue] = React.useState('')
+  /** Build part row id we're editing notes for (captured when part is selected so save always uses correct id). */
+  const [notesBuildPartId, setNotesBuildPartId] = React.useState<string | null>(null)
   const queryClient = useQueryClient()
+
+  const { data: buildParts = [] } = useQuery<BuildPartWithPart[]>({
+    queryKey: ['builds', buildId, 'parts'],
+    queryFn: () => api.get<BuildPartWithPart[]>(`/api/builds/${buildId}/parts`),
+    enabled: !!buildId,
+  })
+  const current = React.useMemo(
+    () => getPrimaryPartForSlot(buildParts, buildSlotId ?? null, componentKey),
+    [buildParts, buildSlotId, componentKey],
+  )
+
+  // When part details are shown, sync notes from current build part and set row id for saving
+  React.useEffect(() => {
+    if (showDetailsView && current) {
+      const rowId = getBuildPartRowId(current)
+      setNotesBuildPartId(rowId)
+      setNotesValue(current?.notes ?? (current as { notes?: string })?.notes ?? '')
+    }
+  }, [showDetailsView, current])
 
   const currentPartId = current?.partId ?? (current as { part_id?: string | null })?.part_id ?? null
   const { data: allParts = [], isLoading } = useQuery<Part[]>({
@@ -91,20 +102,31 @@ export function PartCombobox({
     return [...allParts].sort(sameTypeFirst)
   }, [allParts, componentKey, componentKeysInGroup])
 
+  const filteredParts = React.useMemo(() => {
+    if (!searchQuery.trim()) return parts
+    const q = searchQuery.toLowerCase().trim()
+    return parts.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        (p.component ?? '').toLowerCase().includes(q)
+    )
+  }, [parts, searchQuery])
+
   const addPart = useMutation({
     mutationFn: async (body: { partId?: string; customName?: string; customWeightG?: number; customPrice?: number }) => {
       const isCustomPartBody = Boolean(body.customName?.trim())
-      const isAdditionalComponentRow = current?.id && !current.partId
+      const buildPartRowId = getBuildPartRowId(current ?? null)
+      const isAdditionalComponentRow = Boolean(buildPartRowId && current && !current.partId)
 
       if (isCustomPartBody && isAdditionalComponentRow) {
-        return api.patch<BuildPartWithPart>(`/api/builds/${buildId}/parts/${current.id}`, {
+        return api.patch<BuildPartWithPart>(`/api/builds/${buildId}/parts/${buildPartRowId}`, {
           customName: body.customName!.trim(),
           ...(body.customWeightG != null && body.customWeightG > 0 && { customWeightG: body.customWeightG }),
           ...(body.customPrice != null && body.customPrice >= 0 && { customPrice: body.customPrice }),
         })
       }
-      if (current?.id) {
-        await api.delete(`/api/builds/${buildId}/parts/${current.id}`)
+      if (buildPartRowId) {
+        await api.delete(`/api/builds/${buildId}/parts/${buildPartRowId}`)
       }
       return api.post<BuildPartWithPart>(`/api/builds/${buildId}/parts`, {
         ...(buildSlotId && { buildSlotId }),
@@ -115,8 +137,11 @@ export function PartCombobox({
         ...(body.customPrice != null && body.customPrice >= 0 && { customPrice: body.customPrice }),
       })
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['builds', buildId, 'parts'] })
+    onSuccess: async (data) => {
+      queryClient.setQueryData<BuildPartWithPart[]>(['builds', buildId, 'parts'], (old) =>
+        old ? mergeBuildPartIntoList(old, data) : old
+      )
+      await queryClient.refetchQueries({ queryKey: ['builds', buildId, 'parts'] })
       onSuccess()
       setOpen(false)
       setShowCustomForm(false)
@@ -126,34 +151,36 @@ export function PartCombobox({
     },
   })
 
-  const updateCustomPart = useMutation({
-    mutationFn: ({
-      buildPartId,
-      customName,
-      customWeightG,
-      customPrice,
-    }: {
+  /** Single save for part details popover: part fields + notes, then close. */
+  const saveDetails = useMutation({
+    mutationFn: (payload: {
       buildPartId: string
-      customName: string
+      notes?: string | null
+      customName?: string
       customWeightG?: number
       customPrice?: number
-    }) =>
-      api.patch<BuildPartWithPart>(`/api/builds/${buildId}/parts/${buildPartId}`, {
-        customName: customName.trim(),
-        ...(customWeightG != null && customWeightG > 0 && { customWeightG }),
-        ...(customPrice != null && customPrice >= 0 && { customPrice }),
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['builds', buildId, 'parts'] })
+    }) => {
+      const body: Record<string, unknown> = {}
+      if (payload.notes !== undefined) body.notes = payload.notes === '' ? null : payload.notes
+      if (payload.customName !== undefined) body.customName = payload.customName.trim()
+      if (payload.customWeightG != null && payload.customWeightG > 0) body.customWeightG = payload.customWeightG
+      if (payload.customPrice != null && payload.customPrice >= 0) body.customPrice = payload.customPrice
+      return api.patch<BuildPartWithPart>(`/api/builds/${buildId}/parts/${payload.buildPartId}`, body)
+    },
+    onSuccess: async (data) => {
+      queryClient.setQueryData<BuildPartWithPart[]>(['builds', buildId, 'parts'], (old) =>
+        old ? mergeBuildPartIntoList(old, data) : old
+      )
+      await queryClient.refetchQueries({ queryKey: ['builds', buildId, 'parts'] })
       onSuccess()
       setOpen(false)
     },
   })
 
   const removePart = useMutation({
-    mutationFn: () => api.delete(`/api/builds/${buildId}/parts/${current!.id}`) as Promise<{ deleted: true }>,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['builds', buildId, 'parts'] })
+    mutationFn: () => api.delete(`/api/builds/${buildId}/parts/${getBuildPartRowId(current!) ?? current!.id}`) as Promise<{ deleted: true }>,
+    onSuccess: async () => {
+      await queryClient.refetchQueries({ queryKey: ['builds', buildId, 'parts'] })
       onSuccess()
       setOpen(false)
     },
@@ -185,6 +212,8 @@ export function PartCombobox({
         setEditWeight(current.customWeightG != null ? String(current.customWeightG) : '')
         setEditPrice(current.customPrice != null ? String(current.customPrice) : '')
       }
+    } else {
+      setSearchQuery('')
     }
   }, [open, hasChosenPart, current])
 
@@ -203,15 +232,18 @@ export function PartCombobox({
     })
   }
 
-  const handleSaveCustomPart = (e: React.FormEvent) => {
+  const handleSaveDetails = (e: React.FormEvent) => {
     e.preventDefault()
-    const name = editName.trim()
-    if (!name || !current?.id) return
-    updateCustomPart.mutate({
-      buildPartId: current.id,
-      customName: name,
-      customWeightG: editWeight ? parseInt(editWeight, 10) : undefined,
-      customPrice: editPrice ? parseFloat(editPrice) : undefined,
+    const buildPartId = notesBuildPartId ?? getBuildPartRowId(current ?? null)
+    if (!buildPartId) return
+    saveDetails.mutate({
+      buildPartId,
+      notes: notesValue,
+      ...(isCustomPart && {
+        customName: editName.trim(),
+        customWeightG: editWeight ? parseInt(editWeight, 10) : undefined,
+        customPrice: editPrice ? parseFloat(editPrice) : undefined,
+      }),
     })
   }
 
@@ -222,25 +254,22 @@ export function PartCombobox({
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          role="combobox"
-          aria-expanded={open}
-          className={cn(
-            'w-full justify-between font-normal min-h-9',
-            showPlaceholderStyle && 'text-muted-foreground'
-          )}
-        >
-          <span className="truncate">{displayLabel}</span>
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+      <RACButton
+        aria-label={displayLabel}
+        aria-expanded={open}
+        className={cn(
+          'inline-flex h-9 w-full min-w-0 items-center justify-between gap-2 rounded-md border border-input bg-transparent px-3 py-2 text-sm font-medium shadow-xs outline-none transition-all hover:bg-accent hover:text-accent-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 dark:border-input dark:bg-input/30 dark:hover:bg-accent/50',
+          showPlaceholderStyle && 'text-muted-foreground'
+        )}
+      >
+        <span className="truncate">{displayLabel}</span>
+      </RACButton>
+      <PopoverContent className="w-[var(--trigger-width)] p-0" align="start">
         {showDetailsView && current ? (
           <div className="p-3 space-y-4">
             <h4 className="text-sm font-medium text-foreground">Part details</h4>
             {isCustomPart ? (
-              <form onSubmit={handleSaveCustomPart} className="space-y-3">
+              <form onSubmit={handleSaveDetails} className="space-y-3">
                 <div className="space-y-2">
                   <Label htmlFor="edit-name">Part name</Label>
                   <Input
@@ -275,16 +304,34 @@ export function PartCombobox({
                     />
                   </div>
                 </div>
+                <div className="space-y-2 border-t pt-3">
+                  <Label htmlFor="part-notes-custom">Notes</Label>
+                  <textarea
+                    id="part-notes-custom"
+                    value={notesValue}
+                    onChange={(e) => setNotesValue(e.target.value)}
+                    placeholder="e.g. Installed with 165mm crank arms"
+                    rows={3}
+                    className="border-input bg-background placeholder:text-muted-foreground w-full resize-y rounded-md border px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  />
+                </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button type="submit" size="sm" disabled={!editName.trim() || !current?.id || updateCustomPart.isPending}>
-                    {updateCustomPart.isPending ? 'Saving…' : 'Save'}
+                  <Button
+                    type="submit"
+                    size="sm"
+                    disabled={!editName.trim() || !(notesBuildPartId ?? getBuildPartRowId(current ?? null)) || saveDetails.isPending}
+                  >
+                    {saveDetails.isPending ? 'Saving…' : 'Save'}
                   </Button>
                   <Button type="button" size="sm" variant="outline" onClick={() => setShowDetailsView(false)}>
                     Change part
                   </Button>
                 </div>
-                {updateCustomPart.isError && (
-                  <p className="text-xs text-destructive">{String(updateCustomPart.error)}</p>
+                {saveDetails.isError && (
+                  <p className="text-xs text-destructive">{String(saveDetails.error)}</p>
+                )}
+                {!notesBuildPartId && !getBuildPartRowId(current ?? null) && (
+                  <p className="text-xs text-muted-foreground">This part cannot be updated.</p>
                 )}
               </form>
             ) : (
@@ -305,11 +352,38 @@ export function PartCombobox({
                     </div>
                   )}
                 </dl>
+                <div className="space-y-2 border-t pt-3">
+                  <Label htmlFor="part-notes">Notes</Label>
+                  <textarea
+                    id="part-notes"
+                    value={notesValue}
+                    onChange={(e) => setNotesValue(e.target.value)}
+                    placeholder="e.g. Installed with 165mm crank arms"
+                    rows={3}
+                    className="border-input bg-background placeholder:text-muted-foreground w-full resize-y rounded-md border px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  />
+                </div>
                 <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    disabled={!notesBuildPartId || saveDetails.isPending}
+                    onClick={() =>
+                      notesBuildPartId &&
+                      saveDetails.mutate({ buildPartId: notesBuildPartId, notes: notesValue })
+                    }
+                  >
+                    {saveDetails.isPending ? 'Saving…' : 'Save'}
+                  </Button>
                   <Button size="sm" variant="outline" onClick={() => setShowDetailsView(false)}>
                     Change part
                   </Button>
                 </div>
+                {saveDetails.isError && (
+                  <p className="text-xs text-destructive">{String(saveDetails.error)}</p>
+                )}
+                {!notesBuildPartId && (
+                  <p className="text-xs text-muted-foreground">This part cannot be updated.</p>
+                )}
               </>
             )}
             {removePart.isError && (
@@ -371,32 +445,53 @@ export function PartCombobox({
             )}
           </form>
         ) : (
-          <Command className="flex flex-col">
-            <CommandInput placeholder={`Search ${componentLabel}…`} />
-            <CommandList className="max-h-60 min-h-24">
-              <CommandEmpty>
-                {isLoading ? 'Loading…' : 'No parts in catalog. Add a custom part below.'}
-              </CommandEmpty>
-              <CommandGroup>
-                {parts.map((part) => (
-                  <CommandItem
-                    key={part.id}
-                    value={`${part.name} ${part.component}`}
-                    onSelect={() => handleSelectPart(part)}
-                    disabled={addPart.isPending}
+          <div className="flex flex-col">
+            <div className="flex h-9 items-center gap-2 border-b px-3">
+              <SearchIcon className="size-4 shrink-0 opacity-50" aria-hidden />
+              <Input
+                placeholder={`Search ${componentLabel}…`}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="h-10 flex-1 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
+                aria-label={`Search ${componentLabel}`}
+              />
+            </div>
+            {filteredParts.length > 0 ? (
+              <ListBox
+                aria-label={`${componentLabel} parts`}
+                items={filteredParts}
+                selectionMode="single"
+                onSelectionChange={(keys) => {
+                  const key = keys === 'all' || typeof keys !== 'object' ? null : (keys as Set<React.Key>).values().next().value
+                  if (key == null) return
+                  const part = filteredParts.find((p) => p.id === key || p.id === String(key))
+                  if (part) handleSelectPart(part)
+                }}
+                className="max-h-60 min-h-24 overflow-auto p-1 outline-none"
+              >
+                {(part) => (
+                  <ListBoxItem
+                    id={part.id}
+                    textValue={part.name}
+                    isDisabled={addPart.isPending}
+                    className="relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[focus-visible]:bg-accent data-[focus-visible]:text-accent-foreground data-[selected]:bg-accent data-[selected]:text-accent-foreground"
                   >
                     <span className="truncate">{part.name}</span>
                     {(part.weightG != null || part.price != null) && (
-                      <span className="ml-2 text-muted-foreground text-xs shrink-0">
+                      <span className="ml-2 shrink-0 text-xs text-muted-foreground">
                         {[part.weightG != null ? `${part.weightG}g` : null, part.price != null ? `${part.currency ?? ''} ${part.price}` : null]
                           .filter(Boolean)
                           .join(' · ')}
                       </span>
                     )}
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            </CommandList>
+                  </ListBoxItem>
+                )}
+              </ListBox>
+            ) : (
+              <p className="py-6 text-center text-sm text-muted-foreground">
+                {isLoading ? 'Loading…' : 'No parts in catalog. Add a custom part below.'}
+              </p>
+            )}
             <div className="border-t p-1">
               <Button
                 type="button"
@@ -408,7 +503,7 @@ export function PartCombobox({
                 + Add custom part
               </Button>
             </div>
-          </Command>
+          </div>
         )}
       </PopoverContent>
     </Popover>

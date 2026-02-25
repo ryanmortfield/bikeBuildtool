@@ -1,9 +1,9 @@
 import { Elysia, t } from 'elysia'
 import * as buildsService from '../services/builds'
-import { getScaffold, createGroup, reorderSlots, addSlot, removeSlot } from '../services/scaffold'
+import { getScaffold, createGroup, reorderSlots, addSlot, removeSlot, createCategory, updateCategory, removeCategory } from '../services/scaffold'
 import { getUserIdFromRequest } from '../lib/auth'
 import { notFound } from '../lib/responses'
-import { createBuildBody, updateBuildBody, createGroupBody, reorderSlotsBody, addSlotBody, idParam, errorResponse } from '../schemas/api'
+import { createBuildBody, updateBuildBody, createGroupBody, reorderSlotsBody, addSlotBody, idParam, errorResponse, createCategoryBody, updateCategoryBody, categoryIdParam } from '../schemas/api'
 import type { AppDb } from '../services/builds'
 
 /** Builds CRUD. Resolves optional userId from Clerk JWT; scopes list/create/mutate by user. */
@@ -51,6 +51,44 @@ export const buildsRoutes = (
     }, {
       params: idParam,
       response: { 200: t.Any(), 404: errorResponse },
+    })
+    .post('/builds/:id/categories', async ({ db, userId, params, body, set }) => {
+      const build = await buildsService.getBuildById(db, params.id)
+      if (!build) return notFound(set, 'Build')
+      if (build.userId && build.userId !== userId) return notFound(set, 'Build')
+      const result = await createCategory(db, params.id, { name: body.name })
+      if (!result) {
+        set.status = 400
+        return { error: 'Name is required' }
+      }
+      return result
+    }, {
+      params: idParam,
+      body: createCategoryBody,
+      response: { 200: t.Object({ id: t.String(), name: t.String() }), 400: t.Object({ error: t.String() }), 404: errorResponse },
+    })
+    .patch('/builds/:id/categories/:categoryId', async ({ db, userId, params, body, set }) => {
+      const build = await buildsService.getBuildById(db, params.id)
+      if (!build) return notFound(set, 'Build')
+      if (build.userId && build.userId !== userId) return notFound(set, 'Build')
+      const result = await updateCategory(db, params.id, params.categoryId, { name: body.name })
+      if (!result) return notFound(set, 'Category')
+      return result
+    }, {
+      params: categoryIdParam,
+      body: updateCategoryBody,
+      response: { 200: t.Object({ id: t.String(), name: t.String() }), 404: errorResponse },
+    })
+    .delete('/builds/:id/categories/:categoryId', async ({ db, userId, params, set }) => {
+      const build = await buildsService.getBuildById(db, params.id)
+      if (!build) return notFound(set, 'Build')
+      if (build.userId && build.userId !== userId) return notFound(set, 'Build')
+      const ok = await removeCategory(db, params.id, params.categoryId)
+      if (!ok) return notFound(set, 'Category')
+      return { deleted: true as const }
+    }, {
+      params: categoryIdParam,
+      response: { 200: t.Object({ deleted: t.Literal(true) }), 404: errorResponse },
     })
     .post('/builds/:id/groups', async ({ db, userId, params, body, set }) => {
       const build = await buildsService.getBuildById(db, params.id)

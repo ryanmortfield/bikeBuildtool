@@ -217,7 +217,9 @@ const CUSTOM_KEY_TO_GROUP: Record<string, string> = {
 }
 
 /**
- * Add a slot (component row) to a category. componentKey must be valid for the category's group.
+ * Add a slot (component row) to a category.
+ * For default sections (Frameset, Drivetrain, etc.), componentKey must match that group.
+ * For custom sections (e.g. "Front wheel"), any valid componentKey is allowed.
  */
 export async function addSlot(
   db: AppDb,
@@ -231,9 +233,15 @@ export async function addSlot(
     .from(buildCategories)
     .where(and(eq(buildCategories.buildId, buildId), eq(buildCategories.id, categoryId)))
   if (!category) return null
-  const comp = COMPONENTS.find((c) => c.key === componentKey)
-  const groupForKey = comp ? comp.group : CUSTOM_KEY_TO_GROUP[componentKey]
-  if (!groupForKey || groupForKey !== category.name) return null
+  const isCustomAdditional = componentKey === 'custom_additional'
+  const isDefaultSection = DEFAULT_GROUP_ORDER.includes(category.name)
+  if (!isCustomAdditional) {
+    if (isDefaultSection) {
+      const comp = COMPONENTS.find((c) => c.key === componentKey)
+      const groupForKey = comp ? comp.group : CUSTOM_KEY_TO_GROUP[componentKey]
+      if (!groupForKey || groupForKey !== category.name) return null
+    }
+  }
   const slotsInCategory = await db
     .select({ sortOrder: buildSlots.sortOrder })
     .from(buildSlots)
@@ -261,5 +269,64 @@ export async function removeSlot(db: AppDb, buildId: string, slotId: string): Pr
   if (!slot) return false
   await db.delete(buildParts).where(eq(buildParts.buildSlotId, slotId))
   await db.delete(buildSlots).where(eq(buildSlots.id, slotId))
+  return true
+}
+
+/** Create a new section (category). Name can be anything (e.g. "Front wheel"). */
+export async function createCategory(
+  db: AppDb,
+  buildId: string,
+  input: { name: string }
+): Promise<{ id: string; name: string } | null> {
+  const name = input.name?.trim()
+  if (!name) return null
+  await ensureBuildLayout(db, buildId)
+  const [maxOrderRow] = await db
+    .select({ sortOrder: buildCategories.sortOrder })
+    .from(buildCategories)
+    .where(eq(buildCategories.buildId, buildId))
+    .orderBy(buildCategories.sortOrder)
+  const nextOrder = maxOrderRow ? maxOrderRow.sortOrder + 1 : 0
+  const id = createId()
+  await db.insert(buildCategories).values({
+    id,
+    buildId,
+    name,
+    sortOrder: nextOrder,
+  })
+  return { id, name }
+}
+
+/** Rename a section (category). */
+export async function updateCategory(
+  db: AppDb,
+  buildId: string,
+  categoryId: string,
+  input: { name: string }
+): Promise<{ id: string; name: string } | null> {
+  const name = input.name?.trim()
+  if (!name) return null
+  const [cat] = await db
+    .select()
+    .from(buildCategories)
+    .where(and(eq(buildCategories.buildId, buildId), eq(buildCategories.id, categoryId)))
+  if (!cat) return null
+  await db.update(buildCategories).set({ name }).where(eq(buildCategories.id, categoryId))
+  return { id: categoryId, name }
+}
+
+/** Remove a section (category). Deletes all slots and build parts in it. */
+export async function removeCategory(db: AppDb, buildId: string, categoryId: string): Promise<boolean> {
+  const [cat] = await db
+    .select()
+    .from(buildCategories)
+    .where(and(eq(buildCategories.buildId, buildId), eq(buildCategories.id, categoryId)))
+  if (!cat) return false
+  const slots = await db.select({ id: buildSlots.id }).from(buildSlots).where(eq(buildSlots.categoryId, categoryId))
+  for (const s of slots) {
+    await db.delete(buildParts).where(eq(buildParts.buildSlotId, s.id))
+  }
+  await db.delete(buildSlots).where(eq(buildSlots.categoryId, categoryId))
+  await db.delete(buildCategories).where(eq(buildCategories.id, categoryId))
   return true
 }

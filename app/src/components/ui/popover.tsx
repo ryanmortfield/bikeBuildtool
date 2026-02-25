@@ -1,46 +1,93 @@
 import * as React from "react"
-import { Popover as PopoverPrimitive } from "radix-ui"
+import { DialogTrigger, Popover as RACPopover } from "react-aria-components"
 
 import { cn } from "@/lib/utils"
 
-function Popover({
-  ...props
-}: React.ComponentProps<typeof PopoverPrimitive.Root>) {
-  return <PopoverPrimitive.Root data-slot="popover" {...props} />
+type PopoverRootProps = {
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  children?: React.ReactNode
 }
 
-function PopoverTrigger({
-  ...props
-}: React.ComponentProps<typeof PopoverPrimitive.Trigger>) {
-  return <PopoverPrimitive.Trigger data-slot="popover-trigger" {...props} />
-}
+function Popover({ open, onOpenChange, children }: PopoverRootProps) {
+  const arr = React.Children.toArray(children)
+  const trigger = arr[0]
+  const contentNode = arr.find(
+    (c): c is React.ReactElement<PopoverContentProps> =>
+      React.isValidElement(c) && (c.type as React.FC) === PopoverContent
+  )
+  const contentProps = contentNode?.props ?? {}
 
-function PopoverContent({
-  className,
-  align = "center",
-  sideOffset = 4,
-  ...props
-}: React.ComponentProps<typeof PopoverPrimitive.Content>) {
   return (
-    <PopoverPrimitive.Portal>
-      <PopoverPrimitive.Content
-        data-slot="popover-content"
-        align={align}
-        sideOffset={sideOffset}
+    <DialogTrigger isOpen={open} onOpenChange={onOpenChange}>
+      {trigger}
+      <RACPopover
+        placement={contentProps.align === "start" ? "bottom start" : "bottom"}
+        offset={contentProps.sideOffset ?? 4}
         className={cn(
-          "bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 w-72 origin-(--radix-popover-content-transform-origin) rounded-md border p-4 shadow-md outline-hidden",
-          className
+          "bg-popover text-popover-foreground z-50 w-72 rounded-md border p-4 shadow-md outline-none data-[entering]:animate-in data-[exiting]:animate-out data-[exiting]:fade-out-0 data-[entering]:fade-in-0 data-[exiting]:zoom-out-95 data-[entering]:zoom-in-95 data-[placement=bottom]:slide-in-from-top-2 data-[placement=left]:slide-in-from-right-2 data-[placement=right]:slide-in-from-left-2 data-[placement=top]:slide-in-from-bottom-2",
+          contentProps.className
         )}
-        {...props}
-      />
-    </PopoverPrimitive.Portal>
+        style={
+          contentProps.className?.includes("--trigger-width")
+            ? { width: "var(--trigger-width)" }
+            : undefined
+        }
+      >
+        {contentProps.children}
+      </RACPopover>
+    </DialogTrigger>
   )
 }
 
-function PopoverAnchor({
-  ...props
-}: React.ComponentProps<typeof PopoverPrimitive.Anchor>) {
-  return <PopoverPrimitive.Anchor data-slot="popover-anchor" {...props} />
+type PopoverTriggerProps = {
+  asChild?: boolean
+  children?: React.ReactNode
+}
+
+type TriggerProps = PopoverTriggerProps & { onPress?: (e: unknown) => void; onClick?: React.MouseEventHandler<HTMLButtonElement> }
+
+const PopoverTrigger = React.forwardRef<HTMLButtonElement, TriggerProps>(
+  function PopoverTrigger({ asChild, children, onPress, onClick, ...rest }, ref) {
+    // RAC DialogTrigger passes onPress; native <button> only fires onClick. Call onPress on click so the popover opens.
+    const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+      onPress?.(e)
+      onClick?.(e)
+    }
+    if (asChild && React.isValidElement(children)) {
+      const child = children as React.ReactElement<{ ref?: React.Ref<unknown>; onClick?: React.MouseEventHandler }>
+      const childOnClick = child.props?.onClick
+      const mergedOnClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+        handleClick(e)
+        childOnClick?.(e)
+      }
+      return React.cloneElement(child, {
+        ...rest,
+        ref,
+        onClick: mergedOnClick,
+      } as React.Attributes & { ref?: React.Ref<unknown> })
+    }
+    return (
+      <button type="button" ref={ref} data-slot="popover-trigger" {...rest} onClick={handleClick}>
+        {children}
+      </button>
+    )
+  }
+)
+
+type PopoverContentProps = {
+  className?: string
+  align?: "start" | "center" | "end"
+  sideOffset?: number
+  children?: React.ReactNode
+}
+
+function PopoverContent(props: PopoverContentProps) {
+  return <>{props.children}</>
+}
+
+function PopoverAnchor(props: React.ComponentProps<"div">) {
+  return <div data-slot="popover-anchor" {...props} />
 }
 
 function PopoverHeader({ className, ...props }: React.ComponentProps<"div">) {

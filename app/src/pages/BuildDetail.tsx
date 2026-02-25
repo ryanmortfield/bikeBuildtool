@@ -23,9 +23,11 @@ import { Label } from '@/components/ui/label'
 import { PartCombobox } from '@/components/PartCombobox'
 import { AddCustomComponentDialog } from '@/components/AddCustomComponentDialog'
 import { BuildSummary } from '@/components/BuildSummary'
-import { getBuildPartDisplayName } from '@/lib/buildPart'
+import { getBuildPartDisplayName, getBuildPartRowId } from '@/lib/buildPart'
 import { TEST_PARTS, TEST_PART_PREFIX } from '@/lib/testParts'
 import type { Part } from '@/types/api'
+
+const DEFAULT_SECTION_NAMES = ['Frameset', 'Drivetrain', 'Braking & control', 'Wheelset', 'Cockpit'] as const
 
 const CUSTOM_COMPONENT_KEY_BY_GROUP: Record<string, string> = {
   'Frameset': 'custom_frameset',
@@ -72,8 +74,9 @@ function slotByComponentKey(scaffold: Scaffold | undefined): Map<string, Scaffol
 type ScaffoldCategoryGridListProps = {
   buildId: string
   category: ScaffoldCategory
-  groupName: string
-  components: ComponentDef[]
+  /** When set, section is a default group (Frameset, etc.); when undefined, custom section. */
+  groupName?: string
+  allComponents: ComponentDef[]
   getPartsForSlot: (slot: ScaffoldSlot | undefined, componentKey: string) => BuildPartWithPart[]
   removePart: { mutate: (id: string) => void; isPending: boolean }
   removeSlot: { mutate: (slotId: string) => void; isPending: boolean }
@@ -89,7 +92,7 @@ function ScaffoldCategoryGridList({
   buildId,
   category,
   groupName,
-  components,
+  allComponents,
   getPartsForSlot,
   removePart,
   removeSlot,
@@ -100,12 +103,19 @@ function ScaffoldCategoryGridList({
   openPartComboboxForSlotId,
   onClearAutoOpenPartCombobox,
 }: ScaffoldCategoryGridListProps) {
+  const componentsForGroup = useMemo(
+    () => (groupName ? allComponents.filter((c) => c.group === groupName) : []),
+    [allComponents, groupName],
+  )
   const componentKeys = useMemo(() => {
-    const set = new Set(components.map((c) => c.key))
-    const customKey = CUSTOM_COMPONENT_KEY_BY_GROUP[groupName]
-    if (customKey) set.add(customKey)
-    return set
-  }, [components, groupName])
+    if (groupName) {
+      const set = new Set(componentsForGroup.map((c) => c.key))
+      const customKey = CUSTOM_COMPONENT_KEY_BY_GROUP[groupName]
+      if (customKey) set.add(customKey)
+      return set
+    }
+    return new Set(category.slots.map((s) => s.componentKey))
+  }, [groupName, componentsForGroup, category.slots])
   const slots = useMemo(
     () => category.slots.filter((s) => componentKeys.has(s.componentKey)),
     [category.slots, componentKeys],
@@ -135,7 +145,7 @@ function ScaffoldCategoryGridList({
   return (
     <>
     <GridList
-      aria-label={`${groupName} components`}
+      aria-label={`${groupName ?? category.name} components`}
       layout="stack"
       selectionMode="multiple"
       selectionBehavior="toggle"
@@ -147,15 +157,21 @@ function ScaffoldCategoryGridList({
     >
       {(slot: ScaffoldSlot) => {
         const comp =
-          components.find((c) => c.key === slot.componentKey) ??
-          (CUSTOM_COMPONENT_KEY_BY_GROUP[groupName] === slot.componentKey
+          allComponents.find((c) => c.key === slot.componentKey) ??
+          (groupName && CUSTOM_COMPONENT_KEY_BY_GROUP[groupName] === slot.componentKey
             ? { key: slot.componentKey, label: 'Additional component', group: groupName as ComponentDef['group'] }
-            : null)
+            : slot.componentKey === 'custom_additional'
+              ? { key: 'custom_additional' as const, label: 'Additional component', group: 'Cockpit' as const }
+              : groupName
+                ? null
+                : { key: slot.componentKey, label: slot.componentKey, group: 'Cockpit' as const })
         if (!comp) return null
         const list = getPartsForSlot(slot, comp.key)
         const primary = list[0] ?? null
         const extras = list.slice(1)
-        const isCustomSlot = CUSTOM_COMPONENT_KEY_BY_GROUP[groupName] === slot.componentKey
+        const isCustomSlot =
+          Boolean(groupName && CUSTOM_COMPONENT_KEY_BY_GROUP[groupName] === slot.componentKey) ||
+          slot.componentKey === 'custom_additional'
         const rowLabel = isCustomSlot && primary
           ? (primary.componentLabel ?? primary.customName ?? (primary as { custom_name?: string }).custom_name ?? comp.label)
           : comp.label
@@ -188,7 +204,6 @@ function ScaffoldCategoryGridList({
                         buildId={buildId}
                         componentKey={comp.key}
                         componentLabel={rowLabel}
-                        current={primary}
                         onSuccess={refetchParts}
                         buildSlotId={slot.id}
                         autoOpen={openPartComboboxForSlotId === slot.id}
@@ -211,9 +226,9 @@ function ScaffoldCategoryGridList({
                 </div>
                 {extras.length > 0 && (
                   <div className="sm:pl-[14.5rem] flex flex-wrap gap-2">
-                    {extras.map((bp) => (
+                    {extras.map((bp, i) => (
                       <span
-                        key={bp.id}
+                        key={getBuildPartRowId(bp) ?? `extra-${i}`}
                         className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-sm"
                       >
                         {getBuildPartDisplayName(bp)}
@@ -222,8 +237,8 @@ function ScaffoldCategoryGridList({
                           variant="ghost"
                           size="sm"
                           className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
-                          onClick={() => removePart.mutate(bp.id)}
-                          disabled={removePart.isPending}
+                          onClick={() => { const rowId = getBuildPartRowId(bp); if (rowId) removePart.mutate(rowId) }}
+                          disabled={removePart.isPending || !getBuildPartRowId(bp)}
                         >
                           ×
                         </Button>
@@ -246,10 +261,17 @@ export function BuildDetail() {
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [addDialogGroup, setAddDialogGroup] = useState<string | null>(null)
   const [addDialogCategoryId, setAddDialogCategoryId] = useState<string | null>(null)
+  /** When set, use this componentKey for the add-custom dialog (e.g. 'custom_additional' for custom sections). */
+  const [addDialogComponentKey, setAddDialogComponentKey] = useState<string | null>(null)
   const [openPartComboboxForSlotId, setOpenPartComboboxForSlotId] = useState<string | null>(null)
   const [selectedSlotIds, setSelectedSlotIds] = useState<Set<string>>(new Set())
   const [groupDialogOpen, setGroupDialogOpen] = useState(false)
   const [groupName, setGroupName] = useState('')
+  const [sectionDialogOpen, setSectionDialogOpen] = useState(false)
+  const [sectionName, setSectionName] = useState('')
+  const [editSectionId, setEditSectionId] = useState<string | null>(null)
+  const [editSectionName, setEditSectionName] = useState('')
+  const [removeSectionId, setRemoveSectionId] = useState<string | null>(null)
   const queryClient = useQueryClient()
 
   const { data: build, isLoading, error } = useQuery<Build>({
@@ -311,6 +333,36 @@ export function BuildDetail() {
     },
   })
 
+  const createCategory = useMutation({
+    mutationFn: (name: string) =>
+      api.post<{ id: string; name: string }>(`/api/builds/${id}/categories`, { name: name.trim() }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['builds', id, 'scaffold'] })
+      setSectionName('')
+      setSectionDialogOpen(false)
+    },
+  })
+
+  const updateCategory = useMutation({
+    mutationFn: ({ categoryId, name }: { categoryId: string; name: string }) =>
+      api.patch<{ id: string; name: string }>(`/api/builds/${id}/categories/${categoryId}`, { name: name.trim() }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['builds', id, 'scaffold'] })
+      setEditSectionId(null)
+      setEditSectionName('')
+    },
+  })
+
+  const removeCategory = useMutation({
+    mutationFn: (categoryId: string) =>
+      api.delete(`/api/builds/${id}/categories/${categoryId}`) as Promise<{ deleted: true }>,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['builds', id, 'scaffold'] })
+      queryClient.invalidateQueries({ queryKey: ['builds', id, 'parts'] })
+      setRemoveSectionId(null)
+    },
+  })
+
   const createTestParts = useMutation({
     mutationFn: async () => {
       const existing = await api.get<Part[]>('/api/parts')
@@ -343,7 +395,8 @@ export function BuildDetail() {
       const testParts = allParts.filter((p) => p.name.startsWith(TEST_PART_PREFIX))
       const slotMapLocal = slotByComponentKey(scaffoldData)
       for (const bp of currentBuildParts) {
-        await api.delete(`/api/builds/${id}/parts/${bp.id}`)
+        const rowId = getBuildPartRowId(bp)
+        if (rowId) await api.delete(`/api/builds/${id}/parts/${rowId}`)
       }
       for (const comp of components) {
         const part = testParts.find((p) => p.component === comp.key)
@@ -372,17 +425,10 @@ export function BuildDetail() {
     return partsBySlot.get(slot.id) ?? partsBySlot.get(componentKey) ?? []
   }
 
-  const groups = useMemo(() => groupByGroup(components), [components])
-  const allSlotIds = useMemo(() => {
-    const set = new Set<string>()
-    for (const [, comps] of groups) {
-      for (const comp of comps) {
-        const slot = slotMap.get(comp.key)
-        if (slot) set.add(slot.id)
-      }
-    }
-    return set
-  }, [groups, slotMap])
+  const allSlotIds = useMemo(
+    () => new Set<string>(scaffold?.categories?.flatMap((c) => c.slots.map((s) => s.id)) ?? []),
+    [scaffold?.categories],
+  )
 
   const handleSelectionChange = (keys: Selection) => {
     setSelectedSlotIds(keys === 'all' ? new Set(allSlotIds) : new Set(keys as Iterable<string>))
@@ -451,149 +497,138 @@ export function BuildDetail() {
           )}
         </CardHeader>
         <CardContent className="space-y-8">
-          {Array.from(groups.entries()).map(([groupName, comps]) => {
-            const category = scaffold?.categories?.find((c) => c.name === groupName)
-
+          <div className="flex justify-end">
+            <Button variant="outline" size="sm" onClick={() => setSectionDialogOpen(true)}>
+              Add section
+            </Button>
+          </div>
+          {(scaffold?.categories ?? []).map((category) => {
+            const isDefaultSection = DEFAULT_SECTION_NAMES.includes(category.name as (typeof DEFAULT_SECTION_NAMES)[number])
+            const isEditing = editSectionId === category.id
+            const isRemoving = removeSectionId === category.id
             return (
-              <div key={groupName}>
-                <h3 className="text-sm font-semibold text-muted-foreground mb-3">{groupName}</h3>
-                {category ? (
-                  <ScaffoldCategoryGridList
-                    buildId={id!}
-                    category={category}
-                    groupName={groupName}
-                    components={components}
-                    getPartsForSlot={getPartsForSlot}
-                    removePart={removePart}
-                    removeSlot={removeSlot}
-                    refetchParts={refetchParts}
-                    selectedSlotIds={selectedSlotIds}
-                    onSelectionChange={handleSelectionChange}
-                    onReorderSlots={(categoryId, slotIds) => reorderSlots.mutate({ categoryId, slotIds })}
-                    openPartComboboxForSlotId={openPartComboboxForSlotId}
-                    onClearAutoOpenPartCombobox={() => setOpenPartComboboxForSlotId(null)}
-                  />
-                ) : (
-                  <GridList
-                    aria-label={`${groupName} components`}
-                    layout="stack"
-                    selectionMode="multiple"
-                    selectionBehavior="toggle"
-                    selectedKeys={selectedSlotIds}
-                    onSelectionChange={handleSelectionChange}
-                    className="outline-none rounded-md border border-border/50 overflow-hidden"
-                  >
-                    <GridListSection>
-                      <GridListHeader className="sr-only">{groupName}</GridListHeader>
-                      {comps.map((comp) => {
-                        const slot = slotMap.get(comp.key)
-                        if (!slot) return null
-                        const list = getPartsForSlot(slot, comp.key)
-                        const primary = list[0] ?? null
-                        const extras = list.slice(1)
-                        return (
-                          <GridListItem
-                            key={slot.id}
-                            id={slot.id}
-                            textValue={comp.label}
-                            className="flex flex-col gap-1 border-b border-border/50 last:border-b-0 bg-background px-4 py-3 outline-none data-[selected]:bg-muted/50 data-[focus-visible]:ring-2 data-[focus-visible]:ring-ring data-[focus-visible]:ring-offset-2"
-                          >
-                            {() => (
-                              <>
-                                <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-                                  <div className="flex items-center gap-2 sm:w-56 shrink-0 min-w-0">
-                                    <span className="text-sm font-medium truncate">
-                                      {comp.label}
-                                      {slot?.group && (
-                                        <span className="ml-2 text-xs font-normal text-muted-foreground">
-                                          (Group: {slot.group.name})
-                                        </span>
-                                      )}
-                                    </span>
-                                  </div>
-                                  <div className="flex-1 flex items-center gap-2 min-w-0 sm:pl-2">
-                                    <div className="min-w-0 max-w-sm flex-1">
-                                      <PartCombobox
-                                        buildId={id}
-                                        componentKey={comp.key}
-                                        componentLabel={comp.label}
-                                        current={primary}
-                                        onSuccess={refetchParts}
-                                        buildSlotId={slot.id}
-                                      />
-                                    </div>
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="sm"
-                                      className="shrink-0 text-muted-foreground hover:text-destructive"
-                                      onClick={() => removeSlot.mutate(slot.id)}
-                                      disabled={removeSlot.isPending}
-                                      title="Remove component row"
-                                      aria-label="Remove component row"
-                                    >
-                                      <Trash2 className="h-4 w-4" />
-                                    </Button>
-                                  </div>
-                                </div>
-                                {extras.length > 0 && (
-                                  <div className="sm:pl-[14.5rem] flex flex-wrap gap-2">
-                                    {extras.map((bp) => (
-                                      <span
-                                        key={bp.id}
-                                        className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-sm"
-                                      >
-                                        {getBuildPartDisplayName(bp)}
-                                        <Button
-                                          type="button"
-                                          variant="ghost"
-                                          size="sm"
-                                          className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
-                                          onClick={() => removePart.mutate(bp.id)}
-                                          disabled={removePart.isPending}
-                                        >
-                                          ×
-                                        </Button>
-                                      </span>
-                                    ))}
-                                  </div>
-                                )}
-                              </>
-                            )}
-                          </GridListItem>
-                        )
-                      })}
-                    </GridListSection>
-                  </GridList>
-                )}
-                {category && (
-                  <div className="mt-3">
+              <div key={category.id}>
+                <div className="flex items-center gap-2 mb-3">
+                  {isEditing ? (
+                    <>
+                      <Input
+                        className="h-8 text-sm font-semibold max-w-xs"
+                        value={editSectionName}
+                        onChange={(e) => setEditSectionName(e.target.value)}
+                        placeholder="Section name"
+                        autoFocus
+                      />
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          if (editSectionName.trim()) updateCategory.mutate({ categoryId: category.id, name: editSectionName.trim() })
+                        }}
+                        disabled={!editSectionName.trim() || updateCategory.isPending}
+                      >
+                        Save
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => { setEditSectionId(null); setEditSectionName('') }}>
+                        Cancel
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <h3 className="text-sm font-semibold text-muted-foreground">{category.name}</h3>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-1.5 text-muted-foreground"
+                        onClick={() => { setEditSectionId(category.id); setEditSectionName(category.name) }}
+                        aria-label="Edit section name"
+                      >
+                        Edit
+                      </Button>
+                      {isRemoving ? (
+                        <>
+                          <span className="text-xs text-muted-foreground">Remove this section and its parts?</span>
+                          <Button size="sm" variant="destructive" onClick={() => removeCategory.mutate(category.id)} disabled={removeCategory.isPending}>
+                            Yes, remove
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => setRemoveSectionId(null)}>Cancel</Button>
+                        </>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-1.5 text-muted-foreground hover:text-destructive"
+                          onClick={() => setRemoveSectionId(category.id)}
+                          aria-label="Remove section"
+                        >
+                          Remove
+                        </Button>
+                      )}
+                    </>
+                  )}
+                </div>
+                <ScaffoldCategoryGridList
+                  buildId={id!}
+                  category={category}
+                  groupName={isDefaultSection ? category.name : undefined}
+                  allComponents={components}
+                  getPartsForSlot={getPartsForSlot}
+                  removePart={removePart}
+                  removeSlot={removeSlot}
+                  refetchParts={refetchParts}
+                  selectedSlotIds={selectedSlotIds}
+                  onSelectionChange={handleSelectionChange}
+                  onReorderSlots={(categoryId, slotIds) => reorderSlots.mutate({ categoryId, slotIds })}
+                  openPartComboboxForSlotId={openPartComboboxForSlotId}
+                  onClearAutoOpenPartCombobox={() => setOpenPartComboboxForSlotId(null)}
+                />
+                <div className="mt-3">
+                  {isDefaultSection ? (
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => {
-                        setAddDialogGroup(groupName)
+                        setAddDialogGroup(category.name)
                         setAddDialogCategoryId(category.id)
+                        setAddDialogComponentKey(null)
                         setAddDialogOpen(true)
                       }}
                     >
                       Add additional component
                     </Button>
-                  </div>
-                )}
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setAddDialogGroup(category.name)
+                        setAddDialogCategoryId(category.id)
+                        setAddDialogComponentKey('custom_additional')
+                        setAddDialogOpen(true)
+                      }}
+                    >
+                      Add additional component
+                    </Button>
+                  )}
+                </div>
               </div>
             )
           })}
         </CardContent>
       </Card>
 
-      {id && addDialogGroup && (
+      {id && addDialogGroup && addDialogCategoryId && (
         <AddCustomComponentDialog
           buildId={id}
           open={addDialogOpen}
-          onOpenChange={setAddDialogOpen}
+          onOpenChange={(open) => {
+            setAddDialogOpen(open)
+            if (!open) setAddDialogComponentKey(null)
+          }}
           groupName={addDialogGroup}
-          componentKey={CUSTOM_COMPONENT_KEY_BY_GROUP[addDialogGroup]!}
+          componentKey={
+            addDialogComponentKey ?? CUSTOM_COMPONENT_KEY_BY_GROUP[addDialogGroup] ?? 'custom_additional'
+          }
           categoryId={addDialogCategoryId}
           onAddedSlot={(slotId) => setOpenPartComboboxForSlotId(slotId)}
         />
@@ -635,6 +670,38 @@ export function BuildDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={sectionDialogOpen} onOpenChange={setSectionDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add section</DialogTitle>
+            <p className="text-sm text-muted-foreground">Create a new section (e.g. Front wheel, Accessories).</p>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="section-name">Section name</Label>
+            <Input
+              id="section-name"
+              value={sectionName}
+              onChange={(e) => setSectionName(e.target.value)}
+              placeholder="e.g. Front wheel"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setSectionDialogOpen(false); setSectionName('') }}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (sectionName.trim()) createCategory.mutate(sectionName.trim())
+              }}
+              disabled={!sectionName.trim() || createCategory.isPending}
+            >
+              {createCategory.isPending ? 'Creating…' : 'Create section'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       </div>
     </div>
   )

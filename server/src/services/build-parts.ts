@@ -20,19 +20,20 @@ function toBuildPartResponse(
   row: Record<string, unknown>,
   part: (typeof parts.$inferSelect) | null = null
 ): Record<string, unknown> {
+  const rowAny = row as Record<string, unknown>
   return {
-    id: row.id,
-    buildId: row.buildId ?? (row as Record<string, unknown>).build_id,
-    buildSlotId: row.buildSlotId ?? (row as Record<string, unknown>).build_slot_id ?? null,
+    id: row.id ?? rowAny.id,
+    buildId: row.buildId ?? rowAny.build_id,
+    buildSlotId: row.buildSlotId ?? rowAny.build_slot_id ?? null,
     component: row.component,
-    partId: row.partId ?? (row as Record<string, unknown>).part_id ?? null,
+    partId: row.partId ?? rowAny.part_id ?? null,
     quantity: row.quantity ?? 1,
     notes: row.notes ?? null,
-    componentLabel: row.componentLabel ?? (row as Record<string, unknown>).component_label ?? null,
-    customName: row.customName ?? (row as Record<string, unknown>).custom_name ?? null,
-    customWeightG: row.customWeightG ?? (row as Record<string, unknown>).custom_weight_g ?? null,
-    customPrice: row.customPrice ?? (row as Record<string, unknown>).custom_price ?? null,
-    customCurrency: row.customCurrency ?? (row as Record<string, unknown>).custom_currency ?? null,
+    componentLabel: row.componentLabel ?? rowAny.component_label ?? null,
+    customName: row.customName ?? rowAny.custom_name ?? null,
+    customWeightG: row.customWeightG ?? rowAny.custom_weight_g ?? null,
+    customPrice: row.customPrice ?? rowAny.custom_price ?? null,
+    customCurrency: row.customCurrency ?? rowAny.custom_currency ?? null,
     ...(part !== undefined && { part }),
   }
 }

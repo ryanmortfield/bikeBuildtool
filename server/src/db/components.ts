@@ -42,6 +42,7 @@ export type ComponentKey =
   | 'custom_braking'
   | 'custom_wheelset'
   | 'custom_cockpit'
+  | 'custom_additional'
 
 export type ComponentGroup =
   | 'Frameset'
@@ -95,7 +96,7 @@ export const COMPONENTS: ComponentDef[] = [
 ]
 
 const FIXED_COMPONENT_KEYS = COMPONENTS.map((c) => c.key)
-const CUSTOM_GROUP_KEYS = ['custom_frameset', 'custom_drivetrain', 'custom_braking', 'custom_wheelset', 'custom_cockpit'] as const
+const CUSTOM_GROUP_KEYS = ['custom_frameset', 'custom_drivetrain', 'custom_braking', 'custom_wheelset', 'custom_cockpit', 'custom_additional'] as const
 export const COMPONENT_KEYS: ComponentKey[] = [...FIXED_COMPONENT_KEYS, ...CUSTOM_GROUP_KEYS]
 
 export function isComponentKey(s: string): s is ComponentKey {
