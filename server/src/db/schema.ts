@@ -87,16 +87,12 @@ export const buildParts = sqliteTable('build_parts', {
     .notNull()
     .references(() => builds.id, { onDelete: 'cascade' }),
   buildSlotId: text('build_slot_id').references(() => buildSlots.id, { onDelete: 'cascade' }),
-  /** Denormalized from slot's component_key; kept for backfill and compatibility. */
   component: text('component').notNull(),
-  partId: text('part_id').references(() => parts.id, { onDelete: 'set null' }),
+  partId: text('part_id')
+    .notNull()
+    .references(() => parts.id, { onDelete: 'cascade' }),
   quantity: integer('quantity').notNull().default(1),
   notes: text('notes'),
-  componentLabel: text('component_label'),
-  customName: text('custom_name'),
-  customWeightG: integer('custom_weight_g'),
-  customPrice: real('custom_price'),
-  customCurrency: text('custom_currency'),
 })
 
 // Partial unique index (build_id, component, part_id) WHERE part_id IS NOT NULL is created in migration SQL.

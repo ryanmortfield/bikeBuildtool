@@ -5,6 +5,7 @@ import { createId } from '../lib/id'
 import type { BuildPart } from '../db/schema'
 import type { AppDb } from './builds'
 import { ensureBuildLayout } from './scaffold'
+import * as partsService from './parts'
 
 function pickStr(b: Record<string, unknown>, ...keys: string[]): string | null {
   for (const k of keys) if (typeof b[k] === 'string') return b[k] as string
@@ -15,7 +16,7 @@ function pickNum(b: Record<string, unknown>, ...keys: string[]): number | null {
   return null
 }
 
-/** Normalize a build-part row to camelCase for API responses (handles DB snake_case). */
+/** Build-part API response shape. */
 function toBuildPartResponse(
   row: Record<string, unknown>,
   part: (typeof parts.$inferSelect) | null = null
@@ -29,11 +30,6 @@ function toBuildPartResponse(
     partId: row.partId ?? rowAny.part_id ?? null,
     quantity: row.quantity ?? 1,
     notes: row.notes ?? null,
-    componentLabel: row.componentLabel ?? rowAny.component_label ?? null,
-    customName: row.customName ?? rowAny.custom_name ?? null,
-    customWeightG: row.customWeightG ?? rowAny.custom_weight_g ?? null,
-    customPrice: row.customPrice ?? rowAny.custom_price ?? null,
-    customCurrency: row.customCurrency ?? rowAny.custom_currency ?? null,
     ...(part !== undefined && { part }),
   }
 }
@@ -41,9 +37,8 @@ function toBuildPartResponse(
 /** Single responsibility: build-parts junction data access. */
 export async function listByBuildId(db: AppDb, buildId: string) {
   const rows = await db.select().from(buildParts).where(eq(buildParts.buildId, buildId))
-  const rowPartId = (r: (typeof rows)[0]) =>
-    r.partId ?? (r as Record<string, unknown>).part_id ?? null
-  const partIds = [...new Set(rows.map((r) => rowPartId(r)).filter(Boolean))] as string[]
+  const rowPartId = (r: (typeof rows)[0]) => r.partId ?? (r as Record<string, unknown>).part_id
+  const partIds = [...new Set(rows.map((r) => rowPartId(r)))] as string[]
   const partMap = new Map<string, (typeof parts.$inferSelect) | null>()
   for (const id of partIds) {
     const [p] = await db.select().from(parts).where(eq(parts.id, id))
@@ -78,25 +73,33 @@ export async function addBuildPart(
     buildSlotId = slot?.id ?? null
   }
   if (!component || !isComponentKey(component)) return null
-  const partId = pickStr(body, 'part_id', 'partId')
+  let partId = pickStr(body, 'part_id', 'partId')
   const customName = pickStr(body, 'custom_name', 'customName')
   if (!partId && !customName) return null
+
+  // A part is a part: custom parts become real parts so the picker has one list.
+  if (!partId && customName) {
+    const newPart = await partsService.createPart(db, {
+      name: customName.trim(),
+      component: component as string,
+      weightG: pickNum(body, 'custom_weight_g', 'customWeightG'),
+      price: typeof body.customPrice === 'number' ? body.customPrice : typeof body.custom_price === 'number' ? body.custom_price : undefined,
+      currency: pickStr(body, 'custom_currency', 'customCurrency'),
+    })
+    if (!newPart) return null
+    partId = newPart.id
+  }
+
   const id = createId()
   const quantity = pickNum(body, 'quantity') ?? 1
-  const componentLabel = pickStr(body, 'component_label', 'componentLabel')
   await db.insert(buildParts).values({
     id,
     buildId,
     buildSlotId: buildSlotId || null,
     component,
-    partId: partId || null,
+    partId: partId!,
     quantity,
     notes: typeof body.notes === 'string' ? body.notes : null,
-    componentLabel: componentLabel || null,
-    customName: customName || null,
-    customWeightG: pickNum(body, 'custom_weight_g', 'customWeightG'),
-    customPrice: pickNum(body, 'custom_price', 'customPrice'),
-    customCurrency: pickStr(body, 'custom_currency', 'customCurrency'),
   })
   const [row] = await db.select().from(buildParts).where(eq(buildParts.id, id))
   if (!row) return null
@@ -122,11 +125,6 @@ export async function updateBuildPart(db: AppDb, buildId: string, rowId: string,
   const updates: Record<string, unknown> = {}
   if (body.quantity !== undefined) updates.quantity = Number(body.quantity)
   if (body.notes !== undefined) updates.notes = body.notes === null ? null : String(body.notes)
-  if (body.component_label !== undefined || body.componentLabel !== undefined) updates.componentLabel = body.component_label ?? body.componentLabel
-  if (body.custom_name !== undefined || body.customName !== undefined) updates.customName = body.custom_name ?? body.customName
-  if (body.custom_weight_g !== undefined || body.customWeightG !== undefined) updates.customWeightG = body.custom_weight_g ?? body.customWeightG
-  if (body.custom_price !== undefined || body.customPrice !== undefined) updates.customPrice = body.custom_price ?? body.customPrice
-  if (body.custom_currency !== undefined || body.customCurrency !== undefined) updates.customCurrency = body.custom_currency ?? body.customCurrency
   if (Object.keys(updates).length === 0) return existing
   const [row] = await db.update(buildParts).set(updates).where(eq(buildParts.id, rowId)).returning()
   return row ?? null

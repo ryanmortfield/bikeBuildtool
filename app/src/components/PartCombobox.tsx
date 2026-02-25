@@ -3,7 +3,13 @@
 import * as React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import { getBuildPartDisplayName, getBuildPartPartName, getBuildPartRowId, getPrimaryPartForSlot, mergeBuildPartIntoList } from '@/lib/buildPart'
+import {
+  getBuildPartDisplayName,
+  getBuildPartPartName,
+  getBuildPartRowId,
+  getPrimaryPartForSlot,
+  mergeBuildPartIntoList,
+} from '@/lib/buildPart'
 import type { Part } from '@/types/api'
 import type { BuildPartWithPart } from '@/types/api'
 import { Button } from '@/components/ui/button'
@@ -55,9 +61,6 @@ export function PartCombobox({
   const [customName, setCustomName] = React.useState('')
   const [customWeight, setCustomWeight] = React.useState('')
   const [customPrice, setCustomPrice] = React.useState('')
-  const [editName, setEditName] = React.useState('')
-  const [editWeight, setEditWeight] = React.useState('')
-  const [editPrice, setEditPrice] = React.useState('')
   const [notesValue, setNotesValue] = React.useState('')
   /** Build part row id we're editing notes for (captured when part is selected so save always uses correct id). */
   const [notesBuildPartId, setNotesBuildPartId] = React.useState<string | null>(null)
@@ -102,6 +105,7 @@ export function PartCombobox({
     return [...allParts].sort(sameTypeFirst)
   }, [allParts, componentKey, componentKeysInGroup])
 
+  /** One list: all parts (catalog + user-created). Custom parts are real parts in the API. */
   const filteredParts = React.useMemo(() => {
     if (!searchQuery.trim()) return parts
     const q = searchQuery.toLowerCase().trim()
@@ -114,17 +118,7 @@ export function PartCombobox({
 
   const addPart = useMutation({
     mutationFn: async (body: { partId?: string; customName?: string; customWeightG?: number; customPrice?: number }) => {
-      const isCustomPartBody = Boolean(body.customName?.trim())
       const buildPartRowId = getBuildPartRowId(current ?? null)
-      const isAdditionalComponentRow = Boolean(buildPartRowId && current && !current.partId)
-
-      if (isCustomPartBody && isAdditionalComponentRow) {
-        return api.patch<BuildPartWithPart>(`/api/builds/${buildId}/parts/${buildPartRowId}`, {
-          customName: body.customName!.trim(),
-          ...(body.customWeightG != null && body.customWeightG > 0 && { customWeightG: body.customWeightG }),
-          ...(body.customPrice != null && body.customPrice >= 0 && { customPrice: body.customPrice }),
-        })
-      }
       if (buildPartRowId) {
         await api.delete(`/api/builds/${buildId}/parts/${buildPartRowId}`)
       }
@@ -142,6 +136,7 @@ export function PartCombobox({
         old ? mergeBuildPartIntoList(old, data) : old
       )
       await queryClient.refetchQueries({ queryKey: ['builds', buildId, 'parts'] })
+      await queryClient.invalidateQueries({ queryKey: ['parts', 'all'] })
       onSuccess()
       setOpen(false)
       setShowCustomForm(false)
@@ -151,21 +146,12 @@ export function PartCombobox({
     },
   })
 
-  /** Single save for part details popover: part fields + notes, then close. */
+  /** Save notes for the selected build part. */
   const saveDetails = useMutation({
-    mutationFn: (payload: {
-      buildPartId: string
-      notes?: string | null
-      customName?: string
-      customWeightG?: number
-      customPrice?: number
-    }) => {
-      const body: Record<string, unknown> = {}
-      if (payload.notes !== undefined) body.notes = payload.notes === '' ? null : payload.notes
-      if (payload.customName !== undefined) body.customName = payload.customName.trim()
-      if (payload.customWeightG != null && payload.customWeightG > 0) body.customWeightG = payload.customWeightG
-      if (payload.customPrice != null && payload.customPrice >= 0) body.customPrice = payload.customPrice
-      return api.patch<BuildPartWithPart>(`/api/builds/${buildId}/parts/${payload.buildPartId}`, body)
+    mutationFn: (payload: { buildPartId: string; notes?: string | null }) => {
+      return api.patch<BuildPartWithPart>(`/api/builds/${buildId}/parts/${payload.buildPartId}`, {
+        notes: payload.notes === '' ? null : payload.notes,
+      })
     },
     onSuccess: async (data) => {
       queryClient.setQueryData<BuildPartWithPart[]>(['builds', buildId, 'parts'], (old) =>
@@ -186,11 +172,7 @@ export function PartCombobox({
     },
   })
 
-  const hasChosenPart =
-    current?.part != null ||
-    (current?.partId != null) ||
-    (currentPartId != null) ||
-    (current != null && getBuildPartPartName(current) != null)
+  const hasChosenPart = current?.part != null || (current?.partId != null) || (currentPartId != null) || (current != null && getBuildPartPartName(current) != null)
   const catalogNameById = currentPartId ? allParts.find((p) => p.id === currentPartId)?.name ?? null : null
   const resolvedPartName =
     current && hasChosenPart
@@ -200,22 +182,15 @@ export function PartCombobox({
     ? (resolvedPartName ?? getBuildPartDisplayName(current))
     : (addSlotLabel ?? `Choose part for ${componentLabel}…`)
   const showPlaceholderStyle = !hasChosenPart
-  const isCustomPart = current != null && !current.partId && (current.customName != null || (current as { custom_name?: string }).custom_name != null)
 
   React.useEffect(() => {
     if (open) {
       setShowDetailsView(hasChosenPart)
       if (!hasChosenPart) setShowCustomForm(false)
-      if (hasChosenPart && current && !current.partId) {
-        const name = current.customName ?? (current as { custom_name?: string }).custom_name ?? ''
-        setEditName(name)
-        setEditWeight(current.customWeightG != null ? String(current.customWeightG) : '')
-        setEditPrice(current.customPrice != null ? String(current.customPrice) : '')
-      }
     } else {
       setSearchQuery('')
     }
-  }, [open, hasChosenPart, current])
+  }, [open, hasChosenPart])
 
   const handleSelectPart = (part: Part) => {
     addPart.mutate({ partId: part.id })
@@ -236,21 +211,13 @@ export function PartCombobox({
     e.preventDefault()
     const buildPartId = notesBuildPartId ?? getBuildPartRowId(current ?? null)
     if (!buildPartId) return
-    saveDetails.mutate({
-      buildPartId,
-      notes: notesValue,
-      ...(isCustomPart && {
-        customName: editName.trim(),
-        customWeightG: editWeight ? parseInt(editWeight, 10) : undefined,
-        customPrice: editPrice ? parseFloat(editPrice) : undefined,
-      }),
-    })
+    saveDetails.mutate({ buildPartId, notes: notesValue })
   }
 
   const partName = current ? getBuildPartPartName(current) ?? getBuildPartDisplayName(current) : ''
-  const partWeight = current?.part?.weightG ?? current?.customWeightG ?? (current as { custom_weight_g?: number })?.custom_weight_g
-  const partPrice = current?.part?.price ?? current?.customPrice ?? (current as { custom_price?: number })?.custom_price
-  const partCurrency = current?.part?.currency ?? current?.customCurrency ?? (current as { custom_currency?: string })?.custom_currency
+  const partWeight = current?.part?.weightG
+  const partPrice = current?.part?.price
+  const partCurrency = current?.part?.currency
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -268,124 +235,53 @@ export function PartCombobox({
         {showDetailsView && current ? (
           <div className="p-3 space-y-4">
             <h4 className="text-sm font-medium text-foreground">Part details</h4>
-            {isCustomPart ? (
-              <form onSubmit={handleSaveDetails} className="space-y-3">
-                <div className="space-y-2">
-                  <Label htmlFor="edit-name">Part name</Label>
-                  <Input
-                    id="edit-name"
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    placeholder="e.g. Generic handlebar"
-                  />
+            <form onSubmit={handleSaveDetails} className="space-y-3">
+              <dl className="space-y-2 text-sm">
+                <div>
+                  <dt className="text-muted-foreground">Name</dt>
+                  <dd className="font-medium">{partName}</dd>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-1">
-                    <Label htmlFor="edit-weight">Weight (g)</Label>
-                    <Input
-                      id="edit-weight"
-                      type="number"
-                      min={0}
-                      placeholder="Optional"
-                      value={editWeight}
-                      onChange={(e) => setEditWeight(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="edit-price">Price</Label>
-                    <Input
-                      id="edit-price"
-                      type="number"
-                      min={0}
-                      step={0.01}
-                      placeholder="Optional"
-                      value={editPrice}
-                      onChange={(e) => setEditPrice(e.target.value)}
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2 border-t pt-3">
-                  <Label htmlFor="part-notes-custom">Notes</Label>
-                  <textarea
-                    id="part-notes-custom"
-                    value={notesValue}
-                    onChange={(e) => setNotesValue(e.target.value)}
-                    placeholder="e.g. Installed with 165mm crank arms"
-                    rows={3}
-                    className="border-input bg-background placeholder:text-muted-foreground w-full resize-y rounded-md border px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  />
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="submit"
-                    size="sm"
-                    disabled={!editName.trim() || !(notesBuildPartId ?? getBuildPartRowId(current ?? null)) || saveDetails.isPending}
-                  >
-                    {saveDetails.isPending ? 'Saving…' : 'Save'}
-                  </Button>
-                  <Button type="button" size="sm" variant="outline" onClick={() => setShowDetailsView(false)}>
-                    Change part
-                  </Button>
-                </div>
-                {saveDetails.isError && (
-                  <p className="text-xs text-destructive">{String(saveDetails.error)}</p>
-                )}
-                {!notesBuildPartId && !getBuildPartRowId(current ?? null) && (
-                  <p className="text-xs text-muted-foreground">This part cannot be updated.</p>
-                )}
-              </form>
-            ) : (
-              <>
-                <dl className="space-y-2 text-sm">
+                {(partWeight != null || partPrice != null) && (
                   <div>
-                    <dt className="text-muted-foreground">Name</dt>
-                    <dd className="font-medium">{partName}</dd>
+                    <dt className="text-muted-foreground">Weight / Price</dt>
+                    <dd>
+                      {[partWeight != null ? `${partWeight}g` : null, partPrice != null ? `${partCurrency ?? ''} ${partPrice}` : null]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </dd>
                   </div>
-                  {(partWeight != null || partPrice != null) && (
-                    <div>
-                      <dt className="text-muted-foreground">Weight / Price</dt>
-                      <dd>
-                        {[partWeight != null ? `${partWeight}g` : null, partPrice != null ? `${partCurrency ?? ''} ${partPrice}` : null]
-                          .filter(Boolean)
-                          .join(' · ')}
-                      </dd>
-                    </div>
-                  )}
-                </dl>
-                <div className="space-y-2 border-t pt-3">
-                  <Label htmlFor="part-notes">Notes</Label>
-                  <textarea
-                    id="part-notes"
-                    value={notesValue}
-                    onChange={(e) => setNotesValue(e.target.value)}
-                    placeholder="e.g. Installed with 165mm crank arms"
-                    rows={3}
-                    className="border-input bg-background placeholder:text-muted-foreground w-full resize-y rounded-md border px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  />
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    size="sm"
-                    disabled={!notesBuildPartId || saveDetails.isPending}
-                    onClick={() =>
-                      notesBuildPartId &&
-                      saveDetails.mutate({ buildPartId: notesBuildPartId, notes: notesValue })
-                    }
-                  >
-                    {saveDetails.isPending ? 'Saving…' : 'Save'}
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => setShowDetailsView(false)}>
-                    Change part
-                  </Button>
-                </div>
-                {saveDetails.isError && (
-                  <p className="text-xs text-destructive">{String(saveDetails.error)}</p>
                 )}
-                {!notesBuildPartId && (
-                  <p className="text-xs text-muted-foreground">This part cannot be updated.</p>
-                )}
-              </>
-            )}
+              </dl>
+              <div className="space-y-2 border-t pt-3">
+                <Label htmlFor="part-notes">Notes</Label>
+                <textarea
+                  id="part-notes"
+                  value={notesValue}
+                  onChange={(e) => setNotesValue(e.target.value)}
+                  placeholder="e.g. Installed with 165mm crank arms"
+                  rows={3}
+                  className="border-input bg-background placeholder:text-muted-foreground w-full resize-y rounded-md border px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={!notesBuildPartId || saveDetails.isPending}
+                >
+                  {saveDetails.isPending ? 'Saving…' : 'Save'}
+                </Button>
+                <Button type="button" size="sm" variant="outline" onClick={() => setShowDetailsView(false)}>
+                  Change part
+                </Button>
+              </div>
+              {saveDetails.isError && (
+                <p className="text-xs text-destructive">{String(saveDetails.error)}</p>
+              )}
+              {!notesBuildPartId && (
+                <p className="text-xs text-muted-foreground">This part cannot be updated.</p>
+              )}
+            </form>
             {removePart.isError && (
               <p className="text-xs text-destructive">{String(removePart.error)}</p>
             )}
@@ -461,9 +357,14 @@ export function PartCombobox({
                 aria-label={`${componentLabel} parts`}
                 items={filteredParts}
                 selectionMode="single"
+                selectionBehavior="replace"
                 onSelectionChange={(keys) => {
                   const key = keys === 'all' || typeof keys !== 'object' ? null : (keys as Set<React.Key>).values().next().value
                   if (key == null) return
+                  const part = filteredParts.find((p) => p.id === key || p.id === String(key))
+                  if (part) handleSelectPart(part)
+                }}
+                onAction={(key) => {
                   const part = filteredParts.find((p) => p.id === key || p.id === String(key))
                   if (part) handleSelectPart(part)
                 }}
@@ -489,7 +390,7 @@ export function PartCombobox({
               </ListBox>
             ) : (
               <p className="py-6 text-center text-sm text-muted-foreground">
-                {isLoading ? 'Loading…' : 'No parts in catalog. Add a custom part below.'}
+                {isLoading ? 'Loading…' : searchQuery.trim() ? 'No matching parts.' : 'No parts in catalog. Add a custom part below.'}
               </p>
             )}
             <div className="border-t p-1">

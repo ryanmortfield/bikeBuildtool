@@ -27,18 +27,11 @@ export interface Part {
 export interface BuildPart {
   id: string
   buildId: string
-  /** When using scaffold, part is tied to this slot. */
   buildSlotId?: string | null
   component: string
-  partId: string | null
+  partId: string
   quantity: number
   notes: string | null
-  /** Display label for "additional component" rows; preserved when adding a custom part to the row. */
-  componentLabel?: string | null
-  customName: string | null
-  customWeightG: number | null
-  customPrice: number | null
-  customCurrency: string | null
 }
 
 /** Build part row with optional joined part (from POST /builds/:id/parts). */

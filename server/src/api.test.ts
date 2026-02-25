@@ -207,14 +207,15 @@ describe('API', () => {
   describe('build-parts', () => {
     it('GET /api/builds/:id/parts returns list from service', async () => {
       vi.mocked(buildPartsService.listByBuildId).mockResolvedValue([
-        { id: 'bp-1', buildId: 'b-1', component: 'frame', partId: null, quantity: 1, notes: null, customName: 'TBD', customWeightG: null, customPrice: null, customCurrency: null, part: null },
+        { id: 'bp-1', buildId: 'b-1', component: 'frame', partId: 'p-1', quantity: 1, notes: null, part: { id: 'p-1', name: 'TBD', component: 'frame', weightG: null, price: null, currency: null, sourceUrl: null, sourceName: null, compatibilityTags: null, notes: null, cranksetComponentType: null, handlebarsStemComponentType: null, createdAt: 0 } },
       ])
       const res = await app.handle(new Request('http://localhost/api/builds/b-1/parts'))
       expect(res.status).toBe(200)
       const body = await res.json()
       expect(body).toHaveLength(1)
       expect(body[0].component).toBe('frame')
-      expect(body[0].customName).toBe('TBD')
+      expect(body[0].partId).toBe('p-1')
+      expect(body[0].part?.name).toBe('TBD')
     })
 
     it('POST /api/builds/:id/parts returns 404 when build does not exist', async () => {
@@ -243,34 +244,12 @@ describe('API', () => {
     })
 
     it('POST /api/builds/:id/parts returns 200 and row when addBuildPart succeeds', async () => {
+      const part = { id: 'p-new', name: 'TBD', component: 'frame', weightG: null, price: null, currency: null, sourceUrl: null, sourceName: null, compatibilityTags: null, notes: null, cranksetComponentType: null, handlebarsStemComponentType: null, createdAt: 0 }
       vi.mocked(buildPartsService.requireBuildExists).mockResolvedValue(true)
       vi.mocked(buildPartsService.addBuildPart).mockResolvedValue({
-        row: {
-          id: 'bp-1',
-          buildId: 'b-1',
-          component: 'frame',
-          partId: null,
-          quantity: 1,
-          notes: null,
-          customName: 'TBD',
-          customWeightG: null,
-          customPrice: null,
-          customCurrency: null,
-        },
-        part: null,
-        response: {
-          id: 'bp-1',
-          buildId: 'b-1',
-          component: 'frame',
-          partId: null,
-          quantity: 1,
-          notes: null,
-          customName: 'TBD',
-          customWeightG: null,
-          customPrice: null,
-          customCurrency: null,
-          part: null,
-        },
+        row: { id: 'bp-1', buildId: 'b-1', component: 'frame', partId: part.id, quantity: 1, notes: null },
+        part,
+        response: { id: 'bp-1', buildId: 'b-1', component: 'frame', partId: part.id, quantity: 1, notes: null, part },
       })
       const res = await app.handle(
         new Request('http://localhost/api/builds/b-1/parts', {
@@ -282,7 +261,8 @@ describe('API', () => {
       expect(res.status).toBe(200)
       const body = await res.json()
       expect(body.component).toBe('frame')
-      expect(body.customName).toBe('TBD')
+      expect(body.partId).toBe('p-new')
+      expect(body.part?.name).toBe('TBD')
     })
 
     it('PATCH /api/builds/:id/parts/:rowId returns 404 when build part not found', async () => {
@@ -291,7 +271,7 @@ describe('API', () => {
         new Request('http://localhost/api/builds/b-1/parts/bp-1', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ customName: 'Updated' }),
+          body: JSON.stringify({ notes: 'Updated' }),
         })
       )
       expect(res.status).toBe(404)

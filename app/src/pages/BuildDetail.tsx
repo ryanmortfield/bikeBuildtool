@@ -172,9 +172,7 @@ function ScaffoldCategoryGridList({
         const isCustomSlot =
           Boolean(groupName && CUSTOM_COMPONENT_KEY_BY_GROUP[groupName] === slot.componentKey) ||
           slot.componentKey === 'custom_additional'
-        const rowLabel = isCustomSlot && primary
-          ? (primary.componentLabel ?? primary.customName ?? (primary as { custom_name?: string }).custom_name ?? comp.label)
-          : comp.label
+        const rowLabel = isCustomSlot && primary?.part?.name ? primary.part.name : comp.label
         return (
           <GridListItem
             key={slot.id}

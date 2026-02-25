@@ -97,7 +97,7 @@ export const updatePartBody = t.Object({
   handlebarsStemComponentType: t.Optional(t.Nullable(t.String())),
 })
 
-/** Build parts – either catalog part or custom. Prefer build_slot_id when using scaffold. */
+/** Build parts – partId or customName (creates part then links). */
 export const createBuildPartBody = t.Object({
   build_slot_id: t.Optional(t.Nullable(t.String())),
   buildSlotId: t.Optional(t.Nullable(t.String())),
@@ -106,8 +106,6 @@ export const createBuildPartBody = t.Object({
   partId: t.Optional(t.Nullable(t.String())),
   quantity: t.Optional(t.Number()),
   notes: t.Optional(t.Nullable(t.String())),
-  component_label: t.Optional(t.Nullable(t.String())),
-  componentLabel: t.Optional(t.Nullable(t.String())),
   custom_name: t.Optional(t.Nullable(t.String())),
   customName: t.Optional(t.Nullable(t.String())),
   custom_weight_g: t.Optional(t.Nullable(t.Number())),
@@ -121,16 +119,6 @@ export const createBuildPartBody = t.Object({
 export const updateBuildPartBody = t.Object({
   quantity: t.Optional(t.Number()),
   notes: t.Optional(t.Nullable(t.String())),
-  component_label: t.Optional(t.Nullable(t.String())),
-  componentLabel: t.Optional(t.Nullable(t.String())),
-  custom_name: t.Optional(t.Nullable(t.String())),
-  customName: t.Optional(t.Nullable(t.String())),
-  custom_weight_g: t.Optional(t.Nullable(t.Number())),
-  customWeightG: t.Optional(t.Nullable(t.Number())),
-  custom_price: t.Optional(t.Nullable(t.Number())),
-  customPrice: t.Optional(t.Nullable(t.Number())),
-  custom_currency: t.Optional(t.Nullable(t.String())),
-  customCurrency: t.Optional(t.Nullable(t.String())),
 })
 
 /** Query: optional component filter for list parts. */

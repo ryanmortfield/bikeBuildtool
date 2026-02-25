@@ -5,6 +5,7 @@ import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { api } from '@/lib/api'
+import { mergeBuildPartIntoList } from '@/lib/buildPart'
 import type { BuildPartWithPart } from '@/types/api'
 import {
   Dialog,
@@ -72,13 +73,16 @@ export function AddCustomComponentDialog({
         ...(buildSlotId && { buildSlotId }),
         ...(!buildSlotId && { component: componentKey }),
         customName: name,
-        componentLabel: name,
       })
       return { part, slotId: buildSlotId }
     },
     onSuccess: (data) => {
+      queryClient.setQueryData<BuildPartWithPart[]>(['builds', buildId, 'parts'], (old) =>
+        old ? mergeBuildPartIntoList(old, data.part) : [data.part]
+      )
       queryClient.invalidateQueries({ queryKey: ['builds', buildId, 'parts'] })
       queryClient.invalidateQueries({ queryKey: ['builds', buildId, 'scaffold'] })
+      queryClient.invalidateQueries({ queryKey: ['parts', 'all'] })
       form.reset({ customName: '' })
       onOpenChange(false)
       if (data.slotId) onAddedSlot?.(data.slotId)

@@ -30,9 +30,9 @@ function computeTotals(parts: BuildPartWithPart[]): { totalWeightG: number; tota
   let currency = 'USD'
   for (const bp of parts) {
     const qty = bp.quantity ?? 1
-    const weight = bp.part?.weightG ?? bp.customWeightG ?? 0
-    const price = bp.part?.price ?? bp.customPrice ?? 0
-    const curr = bp.part?.currency ?? bp.customCurrency ?? 'USD'
+    const weight = bp.part?.weightG ?? 0
+    const price = bp.part?.price ?? 0
+    const curr = bp.part?.currency ?? 'USD'
     if (curr && currency === 'USD') currency = curr
     totalWeightG += (typeof weight === 'number' ? weight : 0) * qty
     totalPrice += (typeof price === 'number' ? price : 0) * qty
@@ -52,8 +52,8 @@ function computeTotalsByGroup(
     const group = keyToGroup.get(bp.component) ?? 'Other'
     const cur = byGroup.get(group) ?? { weightG: 0, price: 0 }
     const qty = bp.quantity ?? 1
-    const weight = bp.part?.weightG ?? bp.customWeightG ?? 0
-    const price = bp.part?.price ?? bp.customPrice ?? 0
+    const weight = bp.part?.weightG ?? 0
+    const price = bp.part?.price ?? 0
     cur.weightG += (typeof weight === 'number' ? weight : 0) * qty
     cur.price += (typeof price === 'number' ? price : 0) * qty
     byGroup.set(group, cur)
